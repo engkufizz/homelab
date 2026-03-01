@@ -1,220 +1,330 @@
 <!DOCTYPE html>
-<html lang="en-GB">
+<html lang="en" class="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Enterprise Homelab PM</title>
-    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <title>Homelab Command Centre</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-        :root {
-            --bg-dark: #0b0f19;
-            --panel-bg: #151a28;
-            --panel-border: #2a3143;
-            --text-main: #e2e8f0;
-            --text-muted: #94a3b8;
-            --accent-blue: #3b82f6;
-            --accent-green: #10b981;
-            --accent-purple: #8b5cf6;
+        body { background-color: #0f172a; color: #f8fafc; font-family: 'Inter', sans-serif; }
+        .glass-card {
+            background: rgba(30, 41, 59, 0.7);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 1rem;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
         }
-        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Inter', 'Segoe UI', sans-serif; }
-        body { background-color: var(--bg-dark); color: var(--text-main); display: flex; height: 100vh; overflow: hidden; }
-        
-        /* Sidebar */
-        .sidebar { width: 250px; background-color: var(--panel-bg); border-right: 1px solid var(--panel-border); padding: 20px; display: flex; flex-direction: column; }
-        .sidebar h2 { color: var(--text-main); font-size: 1.2rem; margin-bottom: 30px; display: flex; align-items: center; gap: 10px; }
-        .sidebar h2 span { color: var(--accent-blue); }
-        .controls { margin-top: auto; }
-        .controls label { font-size: 0.85rem; color: var(--text-muted); display: block; margin-bottom: 5px; }
-        select { width: 100%; padding: 10px; background: var(--bg-dark); color: var(--text-main); border: 1px solid var(--panel-border); border-radius: 6px; outline: none; }
-        
-        /* Main Content */
-        .main-content { flex: 1; padding: 30px; overflow-y: auto; }
-        .header { margin-bottom: 30px; }
-        .header h1 { font-size: 1.8rem; font-weight: 600; }
-        .header p { color: var(--text-muted); font-size: 0.9rem; margin-top: 5px; }
-        
-        /* Top Stats Grid */
-        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 20px; margin-bottom: 30px; }
-        .stat-card { background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: 12px; padding: 20px; transition: transform 0.2s; }
-        .stat-card:hover { transform: translateY(-3px); border-color: var(--accent-blue); }
-        .stat-title { color: var(--text-muted); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; }
-        .stat-value { font-size: 1.8rem; font-weight: 700; color: var(--text-main); }
-        .stat-sub { font-size: 0.8rem; color: var(--accent-green); margin-top: 5px; }
-        
-        /* Charts Grid */
-        .charts-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(500px, 1fr)); gap: 20px; margin-bottom: 30px; }
-        .chart-card { background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: 12px; padding: 20px; }
-        .chart-card h3 { font-size: 1rem; margin-bottom: 15px; color: var(--text-main); }
-        .mermaid-container { width: 100%; overflow-x: auto; }
-        
-        /* Routing Table */
-        .routing-section { background: var(--panel-bg); border: 1px solid var(--panel-border); border-radius: 12px; padding: 20px; }
-        .routing-section h3 { margin-bottom: 15px; }
-        .route-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(400px, 1fr)); gap: 15px; }
-        pre { background: var(--bg-dark); padding: 15px; border-radius: 8px; font-size: 0.75rem; color: var(--text-muted); overflow-x: auto; border: 1px solid var(--panel-border); }
-
-        /* Custom Scrollbar */
-        ::-webkit-scrollbar { width: 8px; height: 8px; }
-        ::-webkit-scrollbar-track { background: var(--bg-dark); }
-        ::-webkit-scrollbar-thumb { background: var(--panel-border); border-radius: 4px; }
-        ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+        .progress-ring__circle {
+            transition: stroke-dashoffset 0.35s;
+            transform: rotate(-90deg);
+            transform-origin: 50% 50%;
+        }
+        pre { scrollbar-width: thin; scrollbar-color: #475569 #1e293b; }
+        select { background-color: #1e293b; border: 1px solid #475569; color: white; border-radius: 0.5rem; padding: 0.5rem; outline: none; }
     </style>
 </head>
-<body>
+<body class="p-6 min-h-screen">
 
-    <div class="sidebar">
-        <h2><span>⬢</span> Homelab PM</h2>
-        <div style="color: var(--text-muted); font-size: 0.85rem; line-height: 1.6;">
-            System Status: <span style="color: var(--accent-green)">Online</span><br>
-            Database: <span style="color: var(--accent-blue)">Logging</span>
+    <div class="max-w-7xl mx-auto space-y-6">
+        <!-- Header -->
+        <header class="flex justify-between items-center pb-4 border-b border-gray-700">
+            <div>
+                <h1 class="text-3xl font-bold tracking-tight text-white"><i class="fa-solid fa-server text-blue-500 mr-3"></i>Homelab Command Centre</h1>
+                <p class="text-gray-400 text-sm mt-1">Real-time telemetry & Historical Performance Monitoring</p>
+            </div>
+            <div class="text-right">
+                <div id="clock" class="text-xl font-mono text-blue-400">00:00:00</div>
+                <div id="date" class="text-sm text-gray-500">Loading...</div>
+            </div>
+        </header>
+
+        <!-- Top Row: System Stats & Realtime Throughput -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- System Resources -->
+            <div class="glass-card p-6 lg:col-span-2 grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div class="flex flex-col items-center">
+                    <h3 class="text-gray-400 text-sm mb-2 font-semibold uppercase tracking-wider">CPU</h3>
+                    <div class="relative w-24 h-24">
+                        <svg class="w-full h-full" viewBox="0 0 100 100">
+                            <circle class="text-gray-700 stroke-current" stroke-width="8" cx="50" cy="50" r="40" fill="transparent"></circle>
+                            <circle id="cpu-ring" class="text-blue-500 progress-ring__circle stroke-current" stroke-width="8" stroke-linecap="round" cx="50" cy="50" r="40" fill="transparent" stroke-dasharray="251.2" stroke-dashoffset="251.2"></circle>
+                        </svg>
+                        <div class="absolute inset-0 flex items-center justify-center font-bold text-lg" id="cpu-val">0%</div>
+                    </div>
+                </div>
+                <div class="flex flex-col items-center">
+                    <h3 class="text-gray-400 text-sm mb-2 font-semibold uppercase tracking-wider">RAM</h3>
+                    <div class="relative w-24 h-24">
+                        <svg class="w-full h-full" viewBox="0 0 100 100">
+                            <circle class="text-gray-700 stroke-current" stroke-width="8" cx="50" cy="50" r="40" fill="transparent"></circle>
+                            <circle id="ram-ring" class="text-purple-500 progress-ring__circle stroke-current" stroke-width="8" stroke-linecap="round" cx="50" cy="50" r="40" fill="transparent" stroke-dasharray="251.2" stroke-dashoffset="251.2"></circle>
+                        </svg>
+                        <div class="absolute inset-0 flex items-center justify-center font-bold text-lg" id="ram-val">0%</div>
+                    </div>
+                </div>
+                <div class="flex flex-col items-center">
+                    <h3 class="text-gray-400 text-sm mb-2 font-semibold uppercase tracking-wider">Storage</h3>
+                    <div class="relative w-24 h-24">
+                        <svg class="w-full h-full" viewBox="0 0 100 100">
+                            <circle class="text-gray-700 stroke-current" stroke-width="8" cx="50" cy="50" r="40" fill="transparent"></circle>
+                            <circle id="disk-ring" class="text-emerald-500 progress-ring__circle stroke-current" stroke-width="8" stroke-linecap="round" cx="50" cy="50" r="40" fill="transparent" stroke-dasharray="251.2" stroke-dashoffset="251.2"></circle>
+                        </svg>
+                        <div class="absolute inset-0 flex items-center justify-center font-bold text-lg" id="disk-val">0%</div>
+                    </div>
+                </div>
+                <div class="flex flex-col items-center justify-center">
+                    <h3 class="text-gray-400 text-sm mb-2 font-semibold uppercase tracking-wider">Temp</h3>
+                    <div class="w-24 h-24 flex items-center justify-center rounded-full border-8 border-gray-700">
+                        <div class="font-bold text-xl text-orange-400" id="temp-val">--°C</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Real-time Throughput -->
+            <div class="glass-card p-6 flex flex-col justify-center">
+                <h2 class="text-lg font-semibold mb-4 text-gray-200"><i class="fa-solid fa-network-wired mr-2"></i>Live Throughput</h2>
+                <div class="space-y-6">
+                    <div>
+                        <div class="flex justify-between text-sm mb-1">
+                            <span class="text-gray-400"><i class="fa-solid fa-arrow-down text-emerald-400 mr-2"></i>Download</span>
+                            <span id="dl-speed" class="font-mono text-emerald-400 font-bold">0.00 MB/s</span>
+                        </div>
+                        <div class="w-full bg-gray-700 rounded-full h-2.5">
+                            <div id="dl-bar" class="bg-emerald-400 h-2.5 rounded-full transition-all duration-500" style="width: 0%"></div>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="flex justify-between text-sm mb-1">
+                            <span class="text-gray-400"><i class="fa-solid fa-arrow-up text-blue-400 mr-2"></i>Upload</span>
+                            <span id="ul-speed" class="font-mono text-blue-400 font-bold">0.00 MB/s</span>
+                        </div>
+                        <div class="w-full bg-gray-700 rounded-full h-2.5">
+                            <div id="ul-bar" class="bg-blue-400 h-2.5 rounded-full transition-all duration-500" style="width: 0%"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
-        
-        <div class="controls">
-            <label for="timeRange">Historical PM Range</label>
-            <select id="timeRange" onchange="fetchHistory()">
-                <option value="1">Last 1 Hour</option>
-                <option value="6">Last 6 Hours</option>
-                <option value="24">Last 24 Hours</option>
-            </select>
+
+        <!-- Middle Row: Mermaid Charts (Real-time Latency & MTR) -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div class="glass-card p-6 col-span-1">
+                <h2 class="text-lg font-semibold mb-4 text-gray-200"><i class="fa-solid fa-stopwatch mr-2"></i>Live Latency & Loss</h2>
+                <div id="latency-chart-container" class="w-full overflow-hidden flex justify-center">
+                    <!-- Mermaid Chart Injected Here -->
+                </div>
+            </div>
+            
+            <div class="glass-card p-6 col-span-2">
+                <h2 class="text-lg font-semibold mb-4 text-gray-200"><i class="fa-solid fa-route mr-2"></i>Live MTR Routing Reports</h2>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div class="bg-gray-800 rounded-lg p-3 border border-gray-700">
+                        <h3 class="text-sm font-bold text-blue-400 mb-2 border-b border-gray-700 pb-1">Google</h3>
+                        <pre id="mtr-google" class="text-xs text-gray-300 overflow-x-auto whitespace-pre-wrap">Awaiting data...</pre>
+                    </div>
+                    <div class="bg-gray-800 rounded-lg p-3 border border-gray-700">
+                        <h3 class="text-sm font-bold text-blue-400 mb-2 border-b border-gray-700 pb-1">Facebook</h3>
+                        <pre id="mtr-facebook" class="text-xs text-gray-300 overflow-x-auto whitespace-pre-wrap">Awaiting data...</pre>
+                    </div>
+                    <div class="bg-gray-800 rounded-lg p-3 border border-gray-700">
+                        <h3 class="text-sm font-bold text-blue-400 mb-2 border-b border-gray-700 pb-1">YouTube</h3>
+                        <pre id="mtr-youtube" class="text-xs text-gray-300 overflow-x-auto whitespace-pre-wrap">Awaiting data...</pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Bottom Row: Historical PM Data Query -->
+        <div class="glass-card p-6">
+            <div class="flex flex-col md:flex-row justify-between items-center mb-6 border-b border-gray-700 pb-4">
+                <h2 class="text-xl font-semibold text-gray-200"><i class="fa-solid fa-chart-line mr-2 text-purple-400"></i>Performance Monitoring (PM) History</h2>
+                <div class="flex space-x-4 mt-4 md:mt-0">
+                    <select id="pm-metric">
+                        <option value="speedtest">Speedtest (Mbps)</option>
+                        <option value="throughput">Throughput (Mbps)</option>
+                        <option value="latency">Google Latency (ms)</option>
+                        <option value="loss">Google Packet Loss (%)</option>
+                    </select>
+                    <select id="pm-timeframe">
+                        <option value="12">Last 12 Hours</option>
+                        <option value="24" selected>Last 24 Hours</option>
+                        <option value="72">Last 3 Days</option>
+                        <option value="168">Last 7 Days</option>
+                    </select>
+                    <button onclick="fetchHistoricalData()" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg transition-colors font-medium text-sm">
+                        Query Data
+                    </button>
+                </div>
+            </div>
+            <div id="historical-chart-container" class="w-full overflow-hidden flex justify-center min-h-[300px] items-center">
+                <p class="text-gray-500">Click "Query Data" to load historical metrics.</p>
+            </div>
         </div>
     </div>
 
-    <div class="main-content">
-        <div class="header">
-            <h1>Performance Monitoring</h1>
-            <p>Real-time telemetry and historical trend analysis.</p>
-        </div>
-
-        <!-- Live Stats -->
-        <div class="stats-grid">
-            <div class="stat-card">
-                <div class="stat-title">System Load (CPU / RAM)</div>
-                <div class="stat-value" id="live-sys">0% / 0%</div>
-                <div class="stat-sub" id="live-disk">Storage: 0GB Used</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-title">Live Throughput (DL / UL)</div>
-                <div class="stat-value" id="live-net">0 / 0 Mbps</div>
-                <div class="stat-sub">Updated every 5s</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-title">Latest Speedtest</div>
-                <div class="stat-value" id="live-st">0 Mbps</div>
-                <div class="stat-sub" id="live-st-sub">Ping: 0ms | Time: N/A</div>
-            </div>
-        </div>
-
-        <!-- Historical Charts -->
-        <div class="charts-grid">
-            <div class="chart-card">
-                <h3>CPU Utilisation Trend (%)</h3>
-                <div class="mermaid-container" id="chart-cpu">Loading...</div>
-            </div>
-            <div class="chart-card">
-                <h3>RAM Utilisation Trend (%)</h3>
-                <div class="mermaid-container" id="chart-ram">Loading...</div>
-            </div>
-            <div class="chart-card">
-                <h3>Download Throughput Trend (Mbps)</h3>
-                <div class="mermaid-container" id="chart-dl">Loading...</div>
-            </div>
-            <div class="chart-card">
-                <h3>Google Latency Trend (ms)</h3>
-                <div class="mermaid-container" id="chart-ping">Loading...</div>
-            </div>
-        </div>
-
-        <!-- Routing Data -->
-        <div class="routing-section">
-            <h3>MTR / Routing Reports (Tracert)</h3>
-            <div class="route-grid" id="route-container">
-                <p style="color: var(--text-muted); font-size: 0.9rem;">Awaiting first routing cycle...</p>
-            </div>
-        </div>
-    </div>
-
-    <script>
+    <!-- MermaidJS Module -->
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
         mermaid.initialize({ startOnLoad: false, theme: 'dark' });
 
-        // Fetch Live Data for Top Cards
-        async function fetchCurrent() {
-            try {
-                const res = await fetch('/api/current');
-                const data = await res.json();
-                
-                document.getElementById('live-sys').innerText = `${data.system.cpu}% / ${data.system.ram}%`;
-                document.getElementById('live-disk').innerText = `Storage: ${data.system.disk_used} / ${data.system.disk_total} GB (${data.system.disk_pct}%)`;
-                
-                document.getElementById('live-net').innerText = `${data.network.dl} / ${data.network.ul} Mbps`;
-                
-                document.getElementById('live-st').innerText = `${data.speedtest.dl} Mbps`;
-                document.getElementById('live-st-sub').innerText = `UL: ${data.speedtest.ul} Mbps | Ping: ${data.speedtest.ping}ms | Time: ${data.speedtest.time}`;
+        // Utility: Update Clock
+        setInterval(() => {
+            const now = new Date();
+            document.getElementById('clock').innerText = now.toLocaleTimeString('en-GB');
+            document.getElementById('date').innerText = now.toLocaleDateString('en-GB', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+        }, 1000);
 
-                // Update Routing
-                if (Object.keys(data.routes).length > 0) {
-                    let routeHTML = '';
-                    for (const [host, report] of Object.entries(data.routes)) {
-                        routeHTML += `<div><h4 style="margin-bottom: 8px; color: var(--accent-purple);">${host}</h4><pre>${report}</pre></div>`;
-                    }
-                    document.getElementById('route-container').innerHTML = routeHTML;
-                }
-            } catch (e) { console.error("Error fetching current data", e); }
+        // Utility: Format Bytes
+        function formatBytes(bytes) {
+            if (bytes === 0) return '0.00 B/s';
+            const k = 1024;
+            const sizes = ['B/s', 'KB/s', 'MB/s', 'GB/s'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
         }
 
-        // Fetch Historical Data and Render Charts
-        async function fetchHistory() {
-            const hours = document.getElementById('timeRange').value;
-            try {
-                const res = await fetch(`/api/history?hours=${hours}`);
-                const data = await res.json();
-
-                await renderChart('chart-cpu', 'CPU (%)', data.cpu.x, data.cpu.y, 100);
-                await renderChart('chart-ram', 'RAM (%)', data.ram.x, data.ram.y, 100);
-                
-                // For throughput and latency, dynamically set max Y-axis based on max value + 20%
-                const maxDl = Math.max(...data.throughput.y, 10) * 1.2;
-                await renderChart('chart-dl', 'Throughput (Mbps)', data.throughput.x, data.throughput.y, Math.round(maxDl));
-                
-                const maxPing = Math.max(...data.latency.y, 10) * 1.2;
-                await renderChart('chart-ping', 'Latency (ms)', data.latency.x, data.latency.y, Math.round(maxPing));
-
-            } catch (e) { console.error("Error fetching history", e); }
+        // Utility: Set Progress Ring
+        function setProgress(id, percent) {
+            const circle = document.getElementById(id);
+            const radius = circle.r.baseVal.value;
+            const circumference = radius * 2 * Math.PI;
+            const offset = circumference - (percent / 100) * circumference;
+            circle.style.strokeDashoffset = offset;
         }
 
-        // Helper to render Mermaid xychart-beta
-        async function renderChart(elementId, yTitle, xData, yData, yMax) {
-            // Format arrays for Mermaid syntax
-            const xStr = `[${xData.map(x => `"${x}"`).join(', ')}]`;
-            const yStr = `[${yData.join(', ')}]`;
-            
-            const graphDef = `
+        let lastLatencyData = "";
+
+        // Real-time Data Fetch Loop
+        async function fetchRealtimeData() {
+            try {
+                const response = await fetch('/api/data');
+                const data = await response.json();
+
+                // 1. Update System Stats
+                document.getElementById('cpu-val').innerText = `${data.system.cpu}%`;
+                setProgress('cpu-ring', data.system.cpu);
+                
+                document.getElementById('ram-val').innerText = `${data.system.ram}%`;
+                setProgress('ram-ring', data.system.ram);
+                
+                document.getElementById('disk-val').innerText = `${data.system.storage}%`;
+                setProgress('disk-ring', data.system.storage);
+                
+                document.getElementById('temp-val').innerText = data.system.temp !== "N/A" ? `${data.system.temp}°C` : "N/A";
+
+                // 2. Update Throughput
+                document.getElementById('dl-speed').innerText = formatBytes(data.network_io.download_bps);
+                document.getElementById('ul-speed').innerText = formatBytes(data.network_io.upload_bps);
+                
+                const maxSpeedBps = 100 * 1024 * 1024; 
+                document.getElementById('dl-bar').style.width = `${Math.min((data.network_io.download_bps / maxSpeedBps) * 100, 100)}%`;
+                document.getElementById('ul-bar').style.width = `${Math.min((data.network_io.upload_bps / maxSpeedBps) * 100, 100)}%`;
+
+                // 3. Update MTR
+                document.getElementById('mtr-google').innerText = data.mtr.Google || "Running initial trace...";
+                document.getElementById('mtr-facebook').innerText = data.mtr.Facebook || "Running initial trace...";
+                document.getElementById('mtr-youtube').innerText = data.mtr.YouTube || "Running initial trace...";
+
+                // 4. Render Mermaid Latency & Loss Chart
+                const currentLatencyStr = JSON.stringify(data.latency);
+                if (currentLatencyStr !== lastLatencyData) {
+                    lastLatencyData = currentLatencyStr;
+                    
+                    const targets = Object.keys(data.latency).map(k => `"${k}"`).join(', ');
+                    const pings = Object.keys(data.latency).map(k => data.latency[k].ping).join(', ');
+                    const losses = Object.keys(data.latency).map(k => data.latency[k].loss).join(', ');
+
+                    const latencyMermaid = `
 xychart-beta
-x-axis ${xStr}
-y-axis "${yTitle}" 0 --> ${yMax}
-bar ${yStr}
-line ${yStr}
-            `;
-
-            const container = document.getElementById(elementId);
-            try {
-                // Mermaid requires unique IDs for dynamic re-rendering
-                const uniqueId = `mermaid-${elementId}-${Date.now()}`;
-                const { svg } = await mermaid.render(uniqueId, graphDef);
-                container.innerHTML = svg;
-            } catch (e) {
-                container.innerHTML = `<p style="color: var(--text-muted); font-size: 0.8rem;">Awaiting sufficient data points...</p>`;
+title "Bar: Ping (ms), Line: Loss (%)"
+x-axis [${targets}]
+y-axis "Value"
+bar [${pings}]
+line [${losses}]
+                    `;
+                    
+                    const latContainer = document.getElementById('latency-chart-container');
+                    latContainer.innerHTML = `<pre class="mermaid">${latencyMermaid}</pre>`;
+                    await mermaid.run({ nodes: latContainer.querySelectorAll('.mermaid') });
+                }
+            } catch (error) {
+                console.error("Error fetching real-time data:", error);
             }
         }
 
-        // Initialisation and Timers
-        fetchCurrent();
-        fetchHistory();
+        // Expose Historical Fetch to Window for the Button
+        window.fetchHistoricalData = async function() {
+            const metric = document.getElementById('pm-metric').value;
+            const hours = document.getElementById('pm-timeframe').value;
+            const container = document.getElementById('historical-chart-container');
+            
+            container.innerHTML = '<p class="text-blue-400"><i class="fa-solid fa-circle-notch fa-spin mr-2"></i>Querying Database...</p>';
+
+            try {
+                const response = await fetch(`/api/history?metric=${metric}&hours=${hours}`);
+                const data = await response.json();
+
+                if (data.labels.length === 0) {
+                    container.innerHTML = '<p class="text-orange-400">No historical data found for this timeframe yet. Wait for background logs.</p>';
+                    return;
+                }
+
+                const xLabels = data.labels.map(l => `"${l}"`).join(', ');
+                const d1 = data.data1.join(', ');
+                let chartTitle = "";
+                let yAxis = "";
+                let chartSyntax = "";
+
+                if (metric === 'speedtest' || metric === 'throughput') {
+                    const d2 = data.data2.join(', ');
+                    chartTitle = metric === 'speedtest' ? "Speedtest History (Bar: DL, Line: UL)" : "Throughput History (Bar: DL, Line: UL)";
+                    yAxis = "Mbps";
+                    chartSyntax = `
+xychart-beta
+title "${chartTitle}"
+x-axis [${xLabels}]
+y-axis "${yAxis}"
+bar [${d1}]
+line [${d2}]
+                    `;
+                } else if (metric === 'latency') {
+                    chartTitle = "Google Latency History";
+                    yAxis = "ms";
+                    chartSyntax = `
+xychart-beta
+title "${chartTitle}"
+x-axis [${xLabels}]
+y-axis "${yAxis}"
+line [${d1}]
+                    `;
+                } else if (metric === 'loss') {
+                    chartTitle = "Google Packet Loss History";
+                    yAxis = "%";
+                    chartSyntax = `
+xychart-beta
+title "${chartTitle}"
+x-axis [${xLabels}]
+y-axis "${yAxis}"
+line [${d1}]
+                    `;
+                }
+
+                container.innerHTML = `<pre class="mermaid">${chartSyntax}</pre>`;
+                await mermaid.run({ nodes: container.querySelectorAll('.mermaid') });
+
+            } catch (error) {
+                console.error("Error fetching historical data:", error);
+                container.innerHTML = '<p class="text-red-500">Failed to load historical data.</p>';
+            }
+        };
+
+        // Initial fetch and set interval (every 2 seconds)
+        fetchRealtimeData();
+        setInterval(fetchRealtimeData, 2000);
         
-        // Update live stats every 5 seconds
-        setInterval(fetchCurrent, 5000);
-        
-        // Update historical charts every 60 seconds
-        setInterval(fetchHistory, 60000);
+        // Auto-load historical data on start
+        setTimeout(window.fetchHistoricalData, 1000);
     </script>
 </body>
 </html>
