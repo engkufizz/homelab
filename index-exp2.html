@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Homelab Network Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --bg-base: #111217;
+            --panel-bg: #181b1f;
+            --border-color: #2c3235;
+            --text-main: #c7d0d9;
+            --text-muted: #8e99a4;
+            --chart-green: #73bf69;
+            --chart-orange: #ff9830;
+            --chart-blue: #5794f2;
+            --chart-red: #f2495c;
+            --chart-purple: #b877d9;
+        }
+        body {
+            background-color: var(--bg-base);
+            color: var(--text-main);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 15px;
+            font-size: 13px;
+        }
+        .header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 15px;
+            font-size: 18px;
+            font-weight: 600;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+        }
+        .panel {
+            background-color: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 3px;
+            padding: 10px;
+            position: relative;
+        }
+        .panel-title {
+            text-align: center;
+            font-weight: 600;
+            margin-bottom: 10px;
+            color: var(--text-main);
+        }
+        .chart-container {
+            height: 220px;
+            width: 100%;
+        }
+        .stats-row {
+            display: flex;
+            justify-content: space-around;
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid var(--border-color);
+        }
+        .stat-box { text-align: center; }
+        .stat-val { font-size: 20px; font-weight: bold; }
+        .stat-label { font-size: 11px; color: var(--text-muted); }
+        
+        /* Specific panel overrides */
+        .full-width { grid-column: span 2; }
+        .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        General / Dual-Stack Network Monitoring
+    </div>
+
+    <div class="grid">
+        <!-- Throughput -->
+        <div class="panel">
+            <div class="panel-title">Router WAN Interface (Throughput)</div>
+            <div class="chart-container"><canvas id="throughputChart"></canvas></div>
+        </div>
+
+        <!-- Speedtest -->
+        <div class="panel">
+            <div class="panel-title">Speedtest Results (Hourly)</div>
+            <div class="chart-container"><canvas id="speedtestChart"></canvas></div>
+        </div>
+
+        <!-- Web Latency -->
+        <div class="panel full-width">
+            <div class="panel-title">Web Access Latency</div>
+            <div class="chart-container" style="height: 250px;"><canvas id="latencyChart"></canvas></div>
+        </div>
+
+        <!-- DNS Latency -->
+        <div class="panel full-width">
+            <div class="panel-title">DNS Servers Query Latency</div>
+            <div class="grid-3">
+                <div class="chart-container" style="height: 150px;"><canvas id="dnsQuad9"></canvas></div>
+                <div class="chart-container" style="height: 150px;"><canvas id="dnsCloudflare"></canvas></div>
+                <div class="chart-container" style="height: 150px;"><canvas id="dnsGoogle"></canvas></div>
+            </div>
+        </div>
+
+        <!-- MTR Mockup -->
+        <div class="panel full-width">
+            <div class="panel-title">MTR Hop Latency (Google.com)</div>
+            <div class="chart-container" style="height: 200px;"><canvas id="mtrChart"></canvas></div>
+        </div>
+
+        <!-- System Stats -->
+        <div class="panel full-width">
+            <div class="stats-row">
+                <div class="stat-box">
+                    <div class="stat-val" id="cpu-val" style="color: var(--chart-blue)">0%</div>
+                    <div class="stat-label">CPU Usage</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-val" id="ram-val" style="color: var(--chart-purple)">0%</div>
+                    <div class="stat-label">RAM Usage</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-val" id="disk-val" style="color: var(--chart-orange)">0%</div>
+                    <div class="stat-label">Storage</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-val" id="loss-val" style="color: var(--chart-red)">0%</div>
+                    <div class="stat-label">Avg Packet Loss</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global Chart Defaults for Grafana look
+        Chart.defaults.color = '#8e99a4';
+        Chart.defaults.font.family = "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif";
+        Chart.defaults.plugins.legend.position = 'bottom';
+        Chart.defaults.plugins.legend.labels.boxWidth = 12;
+        Chart.defaults.elements.point.radius = 0; // Hide points on lines
+        Chart.defaults.elements.line.borderWidth = 2;
+        
+        const gridOptions = { color: '#2c3235', drawBorder: false };
+        const xAxesOptions = { grid: { display: false }, ticks: { maxTicksLimit: 10 } };
+
+        // 1. Throughput Chart
+        const throughputCtx = document.getElementById('throughputChart').getContext('2d');
+        const throughputChart = new Chart(throughputCtx, {
+            type: 'line',
+            data: { labels: [], datasets: [
+                { label: 'In (Mbps)', borderColor: '#73bf69', backgroundColor: 'rgba(115, 191, 105, 0.1)', fill: true, data: [] },
+                { label: 'Out (Mbps)', borderColor: '#ff9830', backgroundColor: 'rgba(255, 152, 48, 0.1)', fill: true, data: [] }
+            ]},
+            options: { responsive: true, maintainAspectRatio: false, scales: { x: xAxesOptions, y: { grid: gridOptions, beginAtZero: true } }, animation: false }
+        });
+
+        // 2. Speedtest Chart
+        const speedtestCtx = document.getElementById('speedtestChart').getContext('2d');
+        const speedtestChart = new Chart(speedtestCtx, {
+            type: 'line',
+            data: { labels: [], datasets: [
+                { label: 'Download (Mbps)', borderColor: '#73bf69', data: [] },
+                { label: 'Upload (Mbps)', borderColor: '#5794f2', data: [] }
+            ]},
+            options: { responsive: true, maintainAspectRatio: false, scales: { x: xAxesOptions, y: { grid: gridOptions } }, elements: { point: { radius: 3 } } }
+        });
+
+        // 3. Web Latency Chart
+        const latencyCtx = document.getElementById('latencyChart').getContext('2d');
+        const latencyChart = new Chart(latencyCtx, {
+            type: 'line',
+            data: { labels: [], datasets: [
+                { label: 'Google', borderColor: '#73bf69', data: [] },
+                { label: 'Facebook', borderColor: '#5794f2', data: [] },
+                { label: 'YouTube', borderColor: '#f2495c', data: [] },
+                { label: 'Instagram', borderColor: '#b877d9', data: [] }
+            ]},
+            options: { responsive: true, maintainAspectRatio: false, scales: { x: xAxesOptions, y: { grid: gridOptions, title: { display: true, text: 'ms' } } }, animation: false }
+        });
+
+        // 4. DNS Charts
+        function createDnsChart(id, label, color) {
+            return new Chart(document.getElementById(id).getContext('2d'), {
+                type: 'line',
+                data: { labels: [], datasets: [{ label: label, borderColor: color, data: [] }] },
+                options: { responsive: true, maintainAspectRatio: false, scales: { x: { display: false }, y: { grid: gridOptions } }, animation: false }
+            });
+        }
+        const dnsQuad9Chart = createDnsChart('dnsQuad9', 'Quad9 (9.9.9.9)', '#73bf69');
+        const dnsCloudChart = createDnsChart('dnsCloudflare', 'Cloudflare (1.1.1.1)', '#ff9830');
+        const dnsGoogleChart = createDnsChart('dnsGoogle', 'Google (8.8.8.8)', '#5794f2');
+
+        // 5. MTR Chart (Bar)
+        const mtrCtx = document.getElementById('mtrChart').getContext('2d');
+        const mtrChart = new Chart(mtrCtx, {
+            type: 'bar',
+            data: { labels: [], datasets: [{ label: 'Latency (ms)', backgroundColor: ['#73bf69', '#5794f2', '#ff9830', '#f2495c', '#b877d9'], data: [] }] },
+            options: { responsive: true, maintainAspectRatio: false, scales: { x: { grid: { display: false } }, y: { grid: gridOptions } }, animation: false }
+        });
+
+        // Fetch Data Logic
+        const API_URL = 'http://localhost:5000/api/data';
+        const MAX_POINTS = 30;
+
+        function updateChart(chart, label, dataArray) {
+            chart.data.labels.push(label);
+            dataArray.forEach((val, i) => chart.data.datasets[i].data.push(val));
+            if (chart.data.labels.length > MAX_POINTS) {
+                chart.data.labels.shift();
+                chart.data.datasets.forEach(ds => ds.data.shift());
+            }
+            chart.update();
+        }
+
+        async function fetchData() {
+            try {
+                const res = await fetch(API_URL);
+                const data = await res.json();
+                const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+                // Update System Stats
+                document.getElementById('cpu-val').innerText = data.system.cpu + '%';
+                document.getElementById('ram-val').innerText = data.system.ram + '%';
+                document.getElementById('disk-val').innerText = data.system.disk + '%';
+                
+                let avgLoss = data.latency["google.com"]?.loss || 0;
+                document.getElementById('loss-val').innerText = avgLoss + '%';
+
+                // Update Throughput
+                updateChart(throughputChart, now, [data.throughput.bytes_recv_rate, data.throughput.bytes_sent_rate]);
+
+                // Update Speedtest (only update if values change to prevent flatlining)
+                const lastDl = speedtestChart.data.datasets[0].data.slice(-1)[0];
+                if (data.speedtest.download !== lastDl && data.speedtest.download > 0) {
+                    updateChart(speedtestChart, now, [data.speedtest.download, data.speedtest.upload]);
+                }
+
+                // Update Web Latency
+                const latData = [
+                    data.latency["google.com"]?.latency || 0,
+                    data.latency["facebook.com"]?.latency || 0,
+                    data.latency["youtube.com"]?.latency || 0,
+                    data.latency["instagram.com"]?.latency || 0
+                ];
+                updateChart(latencyChart, now, latData);
+
+                // Update DNS
+                updateChart(dnsQuad9Chart, now, [data.dns_latency["Quad9"]?.latency || 0]);
+                updateChart(dnsCloudChart, now, [data.dns_latency["Cloudflare"]?.latency || 0]);
+                updateChart(dnsGoogleChart, now, [data.dns_latency["Google"]?.latency || 0]);
+
+                // Update MTR
+                if (data.mtr["google.com"] && data.mtr["google.com"].length > 0) {
+                    mtrChart.data.labels = data.mtr["google.com"].map(h => `Hop ${h.hop} (${h.ip})`);
+                    mtrChart.data.datasets[0].data = data.mtr["google.com"].map(h => h.latency);
+                    mtrChart.update();
+                }
+
+            } catch (err) {
+                console.error("Error fetching data:", err);
+            }
+        }
+
+        // Poll every 2 seconds
+        setInterval(fetchData, 2000);
+    </script>
+</body>
+</html>
