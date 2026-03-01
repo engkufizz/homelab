@@ -2,7 +2,7 @@ import time
 import threading
 import subprocess
 import platform
-import psutils
+import psutil
 import speedtest
 import sqlite3
 import re
