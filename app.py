@@ -23,7 +23,7 @@ data_store = {
         "Cloudflare DNS": {"ping": 0, "loss": 0},
         "Google DNS": {"ping": 0, "loss": 0}
     },
-    "mtr": {"Google": "", "Facebook": "", "YouTube": ""}
+    "mtr": {"Google": "Initialising route trace...", "Facebook": "Initialising route trace...", "YouTube": "Initialising route trace..."}
 }
 
 TARGETS = {
@@ -42,11 +42,10 @@ def init_db():
     c.execute('''CREATE TABLE IF NOT EXISTS latency (ts DATETIME DEFAULT CURRENT_TIMESTAMP, target TEXT, ping_ms REAL)''')
     c.execute('''CREATE TABLE IF NOT EXISTS throughput (ts DATETIME DEFAULT CURRENT_TIMESTAMP, dl_mbps REAL, ul_mbps REAL)''')
     
-    # Safely upgrade existing database to include packet loss
     try:
         c.execute("ALTER TABLE latency ADD COLUMN loss_pct REAL DEFAULT 0")
     except sqlite3.OperationalError:
-        pass # Column already exists
+        pass
         
     conn.commit()
     conn.close()
@@ -66,43 +65,57 @@ def get_ping_and_loss(host):
     is_win = platform.system().lower() == 'windows'
     param_count = '-n' if is_win else '-c'
     param_timeout = '-w' if is_win else '-W'
-    timeout_val = '2000' if is_win else '2' # Windows uses ms, Linux uses seconds
+    timeout_val = '2000' if is_win else '2'
     
-    # Send 4 packets to calculate accurate loss %
     command = ['ping', param_count, '4', param_timeout, timeout_val, host]
     
     try:
         output = subprocess.check_output(command, stderr=subprocess.STDOUT, universal_newlines=True)
     except subprocess.CalledProcessError as e:
-        output = e.output # 100% loss usually triggers a non-zero exit code
+        output = e.output
     except Exception:
         return 0.0, 100.0
 
-    # Extract Packet Loss
     loss_match = re.search(r'(\d+)%\s*(packet\s*)?loss', output)
     loss_pct = float(loss_match.group(1)) if loss_match else 100.0
     
-    # Extract Average Latency
     ping_ms = 0.0
     if loss_pct < 100.0:
         if is_win:
             ping_match = re.search(r'Average\s*=\s*(\d+)ms', output)
             if ping_match: ping_ms = float(ping_match.group(1))
         else:
-            # Matches standard Linux output: min/avg/max/mdev = 10.0/11.0/12.0/1.0 ms
             ping_match = re.search(r'= [\d\.]+/([\d\.]+)/[\d\.]+/', output)
             if ping_match: ping_ms = float(ping_match.group(1))
             
     return ping_ms, loss_pct
 
 def get_mtr(host):
-    if platform.system().lower() == 'windows':
-        return "MTR not supported natively on Windows."
+    is_win = platform.system().lower() == 'windows'
     try:
-        output = subprocess.check_output(['mtr', '-c', '1', '-r', '-w', host], stderr=subprocess.STDOUT, universal_newlines=True)
-        return output
+        if is_win:
+            # Use Windows tracert
+            # -d: Do not resolve addresses to hostnames (speeds up significantly)
+            # -h 15: Maximum of 15 hops
+            # -w 500: Timeout of 500ms
+            output = subprocess.check_output(['tracert', '-d', '-h', '15', '-w', '500', host], stderr=subprocess.STDOUT, universal_newlines=True)
+            
+            # Clean up Windows output to fit nicely in the dashboard block
+            lines = output.split('\n')
+            cleaned_lines = []
+            for line in lines:
+                line = line.strip()
+                if line and not line.startswith("Tracing route") and not line.startswith("over a maximum"):
+                    cleaned_lines.append(line)
+            return '\n'.join(cleaned_lines)
+        else:
+            # Native Linux MTR
+            output = subprocess.check_output(['mtr', '-c', '1', '-r', '-w', host], stderr=subprocess.STDOUT, universal_newlines=True)
+            return output
+    except subprocess.CalledProcessError as e:
+        return f"Routing Error:\n{e.output}"
     except Exception as e:
-        return f"MTR Error: {str(e)}"
+        return f"Routing Error: {str(e)}"
 
 # --- Background Threads ---
 def background_system_stats():
