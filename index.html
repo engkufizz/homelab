@@ -6,6 +6,8 @@
     <title>Homelab Command Centre</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Imported Chart.js instead of Mermaid -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         body { background-color: #0f172a; color: #f8fafc; font-family: 'Inter', sans-serif; }
         .glass-card {
@@ -22,26 +24,6 @@
         }
         pre { scrollbar-width: thin; scrollbar-color: #475569 #1e293b; }
         select { background-color: #1e293b; border: 1px solid #475569; color: white; border-radius: 0.5rem; padding: 0.5rem; outline: none; }
-        
-        /* Center all mermaid charts and add bottom padding so labels don't get clipped */
-        .mermaid { 
-            display: flex; 
-            justify-content: center; 
-            width: 100%; 
-            padding-bottom: 32px; /* FIX: Extends background to fit the labels */
-        }
-        
-        /* Ensure SVGs scale correctly and DO NOT clip text at the bottom */
-        .mermaid svg { 
-            max-width: 100% !important; 
-            height: auto !important; 
-            overflow: visible !important; 
-        }
-        
-        /* ONLY force the Historical PM chart to scale to 100% width */
-        #historical-chart-container .mermaid svg { 
-            width: 100% !important; 
-        }
     </style>
 </head>
 <body class="p-6 min-h-screen">
@@ -153,10 +135,11 @@
         </div>
 
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- Chart.js Latency Container -->
             <div class="glass-card p-6 col-span-1">
                 <h2 class="text-lg font-semibold mb-4 text-gray-200"><i class="fa-solid fa-stopwatch mr-2"></i>Live Latency & Loss</h2>
-                <!-- Removed overflow-x-auto to prevent vertical clipping -->
-                <div id="latency-chart-container" class="w-full flex justify-center">
+                <div style="height: 250px; width: 100%;">
+                    <canvas id="latencyChart"></canvas>
                 </div>
             </div>
             
@@ -179,6 +162,7 @@
             </div>
         </div>
 
+        <!-- Chart.js PM History Container -->
         <div class="glass-card p-6">
             <div class="flex flex-col md:flex-row justify-between items-center mb-6 border-b border-gray-700 pb-4">
                 <h2 class="text-xl font-semibold text-gray-200"><i class="fa-solid fa-chart-line mr-2 text-purple-400"></i>Performance Monitoring (PM) History</h2>
@@ -202,29 +186,100 @@
                     </div>
                 </div>
             </div>
-            <div id="historical-chart-container" class="w-full flex justify-center min-h-[300px] items-center">
-                <p class="text-gray-500">Click "Query Data" to load historical metrics.</p>
+            
+            <div id="pm-loading" class="hidden text-blue-400 mb-2 text-center"><i class="fa-solid fa-circle-notch fa-spin mr-2"></i>Querying Database...</div>
+            <div id="pm-empty" class="hidden text-orange-400 mb-2 text-center">No historical data found for this timeframe yet. Wait for background logs.</div>
+            
+            <div style="height: 350px; width: 100%;">
+                <canvas id="pmChart"></canvas>
             </div>
         </div>
     </div>
 
-    <script type="module">
-        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+    <script>
+        // --- Global Chart.js Settings (Grafana Dark Theme Style) ---
+        Chart.defaults.color = '#8e99a4';
+        Chart.defaults.font.family = "'Inter', sans-serif";
+        Chart.defaults.plugins.legend.position = 'bottom';
+        Chart.defaults.plugins.legend.labels.boxWidth = 12;
         
-        // Clean initialization. We will size charts individually using frontmatter.
-        mermaid.initialize({ 
-            startOnLoad: false, 
-            theme: 'dark'
+        const gridOptions = { color: '#2c3235', drawBorder: false };
+        const xAxesOptions = { grid: { display: false } };
+
+        // --- 1. Initialize Live Latency Chart ---
+        const latencyCtx = document.getElementById('latencyChart').getContext('2d');
+        let liveLatencyChart = new Chart(latencyCtx, {
+            type: 'bar',
+            data: {
+                labels: [],
+                datasets: [
+                    {
+                        type: 'bar',
+                        label: 'Ping (ms)',
+                        backgroundColor: '#5794f2', // Grafana Blue
+                        data: [],
+                        yAxisID: 'y'
+                    },
+                    {
+                        type: 'line',
+                        label: 'Loss (%)',
+                        borderColor: '#f2495c', // Grafana Red
+                        backgroundColor: '#f2495c',
+                        borderWidth: 2,
+                        pointRadius: 3,
+                        data: [],
+                        yAxisID: 'y1'
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: xAxesOptions,
+                    y: { 
+                        type: 'linear', display: true, position: 'left', 
+                        grid: gridOptions, title: { display: true, text: 'ms' }
+                    },
+                    y1: { 
+                        type: 'linear', display: true, position: 'right', 
+                        grid: { drawOnChartArea: false }, min: 0, max: 100,
+                        title: { display: true, text: '%' }
+                    }
+                },
+                animation: false
+            }
         });
 
-        // Utility: Update Clock
+        // --- 2. Initialize PM History Chart ---
+        const pmCtx = document.getElementById('pmChart').getContext('2d');
+        let pmChart = new Chart(pmCtx, {
+            type: 'line',
+            data: { labels: [], datasets: [] },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: xAxesOptions,
+                    y: { grid: gridOptions, beginAtZero: true }
+                },
+                elements: { 
+                    point: { radius: 2, hoverRadius: 5 },
+                    line: { borderWidth: 2 }
+                },
+                plugins: {
+                    tooltip: { mode: 'index', intersect: false }
+                }
+            }
+        });
+
+        // --- Utilities ---
         setInterval(() => {
             const now = new Date();
             document.getElementById('clock').innerText = now.toLocaleTimeString('en-GB');
             document.getElementById('date').innerText = now.toLocaleDateString('en-GB', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
         }, 1000);
 
-        // Utility: Format Bytes
         function formatBytes(bytes) {
             if (bytes === 0) return '0.00 B/s';
             const k = 1024;
@@ -233,7 +288,6 @@
             return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
         }
 
-        // Utility: Set Progress Ring
         function setProgress(id, percent) {
             const circle = document.getElementById(id);
             const radius = circle.r.baseVal.value;
@@ -242,9 +296,7 @@
             circle.style.strokeDashoffset = offset;
         }
 
-        let lastLatencyData = "";
-
-        // Trigger Manual Speedtest
+        // --- Trigger Manual Speedtest ---
         window.triggerSpeedtest = async function() {
             try {
                 await fetch('/api/speedtest/run', { method: 'POST' });
@@ -253,7 +305,8 @@
             }
         };
 
-        // Real-time Data Fetch Loop
+        // --- Real-time Data Fetch Loop ---
+        let lastLatencyData = "";
         async function fetchRealtimeData() {
             try {
                 const response = await fetch('/api/data');
@@ -284,7 +337,7 @@
                 document.getElementById('mtr-facebook').innerText = data.mtr.Facebook || "Running initial trace...";
                 document.getElementById('mtr-youtube').innerText = data.mtr.YouTube || "Running initial trace...";
 
-                // 4. Update Speedtest Button & Manual Results Card
+                // 4. Update Speedtest Button
                 const stStatus = data.speedtest_status;
                 const stBtn = document.getElementById('btn-speedtest');
                 const stBtnText = document.getElementById('btn-speedtest-text');
@@ -314,112 +367,106 @@
                     document.getElementById('manual-time').innerText = `Last run: ${data.manual_speedtest.time}`;
                 }
 
-                // 5. Render Mermaid Latency & Loss Chart
+                // 5. Update Chart.js Latency Chart
                 const currentLatencyStr = JSON.stringify(data.latency);
                 if (currentLatencyStr !== lastLatencyData) {
                     lastLatencyData = currentLatencyStr;
                     
-                    const targets = Object.keys(data.latency).map(k => `"${k}"`).join(', ');
-                    const pings = Object.keys(data.latency).map(k => data.latency[k].ping).join(', ');
-                    const losses = Object.keys(data.latency).map(k => data.latency[k].loss).join(', ');
+                    const targets = Object.keys(data.latency);
+                    const pings = targets.map(k => data.latency[k].ping);
+                    const losses = targets.map(k => data.latency[k].loss);
 
-                    const latencyMermaid = `%%{init: { 'xyChart': {'width': 800, 'height': 600} } }%%
-xychart-beta
-title "Bar: Ping (ms), Line: Loss (%)"
-x-axis [${targets}]
-y-axis "Value"
-bar [${pings}]
-line [${losses}]
-                    `;
-                    
-                    const latContainer = document.getElementById('latency-chart-container');
-                    latContainer.innerHTML = `<pre class="mermaid">${latencyMermaid}</pre>`;
-                    await mermaid.run({ nodes: latContainer.querySelectorAll('.mermaid') });
+                    liveLatencyChart.data.labels = targets;
+                    liveLatencyChart.data.datasets[0].data = pings;
+                    liveLatencyChart.data.datasets[1].data = losses;
+                    liveLatencyChart.update();
                 }
             } catch (error) {
                 console.error("Error fetching real-time data:", error);
             }
         }
 
-        // Expose Historical Fetch to Window for the Button
+        // --- Fetch Historical PM Data ---
         window.fetchHistoricalData = async function() {
             const metric = document.getElementById('pm-metric').value;
             const hours = parseInt(document.getElementById('pm-timeframe').value);
-            const container = document.getElementById('historical-chart-container');
             
-            container.innerHTML = '<p class="text-blue-400"><i class="fa-solid fa-circle-notch fa-spin mr-2"></i>Querying Database...</p>';
+            document.getElementById('pm-loading').classList.remove('hidden');
+            document.getElementById('pm-empty').classList.add('hidden');
 
             try {
                 const response = await fetch(`/api/history?metric=${metric}&hours=${hours}`);
                 const data = await response.json();
 
+                document.getElementById('pm-loading').classList.add('hidden');
+
                 if (data.labels.length === 0) {
-                    container.innerHTML = '<p class="text-orange-400">No historical data found for this timeframe yet. Wait for background logs.</p>';
+                    document.getElementById('pm-empty').classList.remove('hidden');
+                    pmChart.data.labels = [];
+                    pmChart.data.datasets = [];
+                    pmChart.update();
                     return;
                 }
 
-                let seen = new Set();
+                // Format X-Axis Labels
                 const xLabels = data.labels.map(l => {
                     const date = new Date(l.replace(' ', 'T') + 'Z');
-                    let label = hours > 24 
+                    return hours > 24 
                         ? date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
                         : date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-                        
-                    while (seen.has(label)) {
-                        label += ' ';
-                    }
-                    seen.add(label);
-                    return `"${label}"`;
-                }).join(', ');
+                });
 
-                const d1 = data.data1.join(', ');
-                let chartTitle = "";
-                let yAxis = "";
-                let chartSyntax = "";
+                pmChart.data.labels = xLabels;
+                pmChart.data.datasets = []; // Clear old datasets
 
-                // Added native frontmatter to make the PM chart wide and beautiful (1000px wide)
-                const frontmatter = `%%{init: { 'xyChart': {'width': 1000, 'height': 400} } }%%`;
-
+                // Build datasets based on selected metric
                 if (metric === 'speedtest' || metric === 'throughput') {
-                    const d2 = data.data2.join(', ');
-                    chartTitle = metric === 'speedtest' ? "Speedtest History (DL vs UL)" : "Throughput History (DL vs UL)";
-                    yAxis = "Mbps";
-                    chartSyntax = `${frontmatter}
-xychart-beta
-title "${chartTitle}"
-x-axis [${xLabels}]
-y-axis "${yAxis}"
-line [${d1}]
-line [${d2}]
-                    `;
+                    pmChart.data.datasets.push({
+                        label: 'Download (Mbps)',
+                        borderColor: '#73bf69', // Grafana Green
+                        backgroundColor: 'rgba(115, 191, 105, 0.1)',
+                        fill: true,
+                        data: data.data1,
+                        tension: 0.3
+                    });
+                    pmChart.data.datasets.push({
+                        label: 'Upload (Mbps)',
+                        borderColor: '#5794f2', // Grafana Blue
+                        backgroundColor: 'rgba(87, 148, 242, 0.1)',
+                        fill: true,
+                        data: data.data2,
+                        tension: 0.3
+                    });
+                    pmChart.options.scales.y.title = { display: true, text: 'Mbps' };
                 } else if (metric === 'latency') {
-                    chartTitle = "Google Latency History";
-                    yAxis = "ms";
-                    chartSyntax = `${frontmatter}
-xychart-beta
-title "${chartTitle}"
-x-axis [${xLabels}]
-y-axis "${yAxis}"
-line [${d1}]
-                    `;
+                    pmChart.data.datasets.push({
+                        label: 'Google Latency (ms)',
+                        borderColor: '#ff9830', // Grafana Orange
+                        backgroundColor: 'rgba(255, 152, 48, 0.1)',
+                        fill: true,
+                        data: data.data1,
+                        tension: 0.3
+                    });
+                    pmChart.options.scales.y.title = { display: true, text: 'ms' };
                 } else if (metric === 'loss') {
-                    chartTitle = "Google Packet Loss History";
-                    yAxis = "%";
-                    chartSyntax = `${frontmatter}
-xychart-beta
-title "${chartTitle}"
-x-axis [${xLabels}]
-y-axis "${yAxis}"
-line [${d1}]
-                    `;
+                    pmChart.data.datasets.push({
+                        label: 'Google Packet Loss (%)',
+                        borderColor: '#f2495c', // Grafana Red
+                        backgroundColor: 'rgba(242, 73, 92, 0.1)',
+                        fill: true,
+                        data: data.data1,
+                        tension: 0.3
+                    });
+                    pmChart.options.scales.y.title = { display: true, text: '%' };
                 }
 
-                container.innerHTML = `<pre class="mermaid">${chartSyntax}</pre>`;
-                await mermaid.run({ nodes: container.querySelectorAll('.mermaid') });
+                pmChart.update();
 
             } catch (error) {
                 console.error("Error fetching historical data:", error);
-                container.innerHTML = '<p class="text-red-500">Failed to load historical data.</p>';
+                document.getElementById('pm-loading').classList.add('hidden');
+                document.getElementById('pm-empty').innerText = "Failed to load historical data.";
+                document.getElementById('pm-empty').classList.remove('hidden');
             }
         };
 
