@@ -23,12 +23,25 @@
         pre { scrollbar-width: thin; scrollbar-color: #475569 #1e293b; }
         select { background-color: #1e293b; border: 1px solid #475569; color: white; border-radius: 0.5rem; padding: 0.5rem; outline: none; }
         
-        /* Center all mermaid charts */
-        .mermaid { display: flex; justify-content: center; }
+        /* Center all mermaid charts and add bottom padding so labels don't get clipped */
+        .mermaid { 
+            display: flex; 
+            justify-content: center; 
+            width: 100%; 
+            padding-bottom: 32px; /* FIX: Extends background to fit the labels */
+        }
+        
+        /* Ensure SVGs scale correctly and DO NOT clip text at the bottom */
+        .mermaid svg { 
+            max-width: 100% !important; 
+            height: auto !important; 
+            overflow: visible !important; 
+        }
         
         /* ONLY force the Historical PM chart to scale to 100% width */
-        #historical-chart-container .mermaid { width: 100%; }
-        #historical-chart-container .mermaid svg { width: 100% !important; max-width: 100% !important; height: auto !important; }
+        #historical-chart-container .mermaid svg { 
+            width: 100% !important; 
+        }
     </style>
 </head>
 <body class="p-6 min-h-screen">
@@ -142,8 +155,9 @@
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div class="glass-card p-6 col-span-1">
                 <h2 class="text-lg font-semibold mb-4 text-gray-200"><i class="fa-solid fa-stopwatch mr-2"></i>Live Latency & Loss</h2>
-                <div id="latency-chart-container" class="w-full overflow-hidden flex justify-center">
-                    </div>
+                <!-- Removed overflow-x-auto to prevent vertical clipping -->
+                <div id="latency-chart-container" class="w-full flex justify-center">
+                </div>
             </div>
             
             <div class="glass-card p-6 col-span-2">
@@ -188,7 +202,7 @@
                     </div>
                 </div>
             </div>
-            <div id="historical-chart-container" class="w-full overflow-hidden flex justify-center min-h-[300px] items-center">
+            <div id="historical-chart-container" class="w-full flex justify-center min-h-[300px] items-center">
                 <p class="text-gray-500">Click "Query Data" to load historical metrics.</p>
             </div>
         </div>
@@ -197,7 +211,7 @@
     <script type="module">
         import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
         
-        // Removed the global xyChart override so the Live Latency chart stays its original size
+        // Clean initialization. We will size charts individually using frontmatter.
         mermaid.initialize({ 
             startOnLoad: false, 
             theme: 'dark'
@@ -309,7 +323,7 @@
                     const pings = Object.keys(data.latency).map(k => data.latency[k].ping).join(', ');
                     const losses = Object.keys(data.latency).map(k => data.latency[k].loss).join(', ');
 
-                    const latencyMermaid = `
+                    const latencyMermaid = `%%{init: { 'xyChart': {'width': 800, 'height': 600} } }%%
 xychart-beta
 title "Bar: Ping (ms), Line: Loss (%)"
 x-axis [${targets}]
@@ -363,11 +377,14 @@ line [${losses}]
                 let yAxis = "";
                 let chartSyntax = "";
 
+                // Added native frontmatter to make the PM chart wide and beautiful (1000px wide)
+                const frontmatter = `%%{init: { 'xyChart': {'width': 1000, 'height': 400} } }%%`;
+
                 if (metric === 'speedtest' || metric === 'throughput') {
                     const d2 = data.data2.join(', ');
                     chartTitle = metric === 'speedtest' ? "Speedtest History (DL vs UL)" : "Throughput History (DL vs UL)";
                     yAxis = "Mbps";
-                    chartSyntax = `
+                    chartSyntax = `${frontmatter}
 xychart-beta
 title "${chartTitle}"
 x-axis [${xLabels}]
@@ -378,7 +395,7 @@ line [${d2}]
                 } else if (metric === 'latency') {
                     chartTitle = "Google Latency History";
                     yAxis = "ms";
-                    chartSyntax = `
+                    chartSyntax = `${frontmatter}
 xychart-beta
 title "${chartTitle}"
 x-axis [${xLabels}]
@@ -388,7 +405,7 @@ line [${d1}]
                 } else if (metric === 'loss') {
                     chartTitle = "Google Packet Loss History";
                     yAxis = "%";
-                    chartSyntax = `
+                    chartSyntax = `${frontmatter}
 xychart-beta
 title "${chartTitle}"
 x-axis [${xLabels}]
