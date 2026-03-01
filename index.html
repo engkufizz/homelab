@@ -22,6 +22,13 @@
         }
         pre { scrollbar-width: thin; scrollbar-color: #475569 #1e293b; }
         select { background-color: #1e293b; border: 1px solid #475569; color: white; border-radius: 0.5rem; padding: 0.5rem; outline: none; }
+        
+        /* Center all mermaid charts */
+        .mermaid { display: flex; justify-content: center; }
+        
+        /* ONLY force the Historical PM chart to scale to 100% width */
+        #historical-chart-container .mermaid { width: 100%; }
+        #historical-chart-container .mermaid svg { width: 100% !important; max-width: 100% !important; height: auto !important; }
     </style>
 </head>
 <body class="p-6 min-h-screen">
@@ -47,7 +54,7 @@
         <!-- Top Row: System Stats, Throughput, and Manual Speedtest -->
         <div class="grid grid-cols-1 xl:grid-cols-4 gap-6">
             <!-- System Resources -->
-            <div class="glass-card p-6 xl:col-span-2 grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div class="glass-card p-6 xl:col-span-2 grid grid-cols-2 md:grid-cols-4 gap-4 items-center">
                 <div class="flex flex-col items-center">
                     <h3 class="text-gray-400 text-sm mb-2 font-semibold uppercase tracking-wider">CPU</h3>
                     <div class="relative w-24 h-24">
@@ -189,7 +196,12 @@
 
     <script type="module">
         import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
-        mermaid.initialize({ startOnLoad: false, theme: 'dark' });
+        
+        // Removed the global xyChart override so the Live Latency chart stays its original size
+        mermaid.initialize({ 
+            startOnLoad: false, 
+            theme: 'dark'
+        });
 
         // Utility: Update Clock
         setInterval(() => {
