@@ -15,7 +15,8 @@ app = Flask(__name__)
 data_store = {
     "system": {"cpu": 0, "ram": 0, "storage": 0, "temp": "N/A"},
     "network_io": {"download_bps": 0, "upload_bps": 0},
-    "speedtest": {"history_up": [], "history_down": [], "history_ping": []},
+    "speedtest_status": "idle", 
+    "manual_speedtest": {"dl": 0, "ul": 0, "ping": 0, "time": "Never"},
     "latency": {
         "Google": {"ping": 0, "loss": 0},
         "Facebook": {"ping": 0, "loss": 0},
@@ -94,13 +95,7 @@ def get_mtr(host):
     is_win = platform.system().lower() == 'windows'
     try:
         if is_win:
-            # Use Windows tracert
-            # -d: Do not resolve addresses to hostnames (speeds up significantly)
-            # -h 15: Maximum of 15 hops
-            # -w 500: Timeout of 500ms
             output = subprocess.check_output(['tracert', '-d', '-h', '15', '-w', '500', host], stderr=subprocess.STDOUT, universal_newlines=True)
-            
-            # Clean up Windows output to fit nicely in the dashboard block
             lines = output.split('\n')
             cleaned_lines = []
             for line in lines:
@@ -109,13 +104,39 @@ def get_mtr(host):
                     cleaned_lines.append(line)
             return '\n'.join(cleaned_lines)
         else:
-            # Native Linux MTR
             output = subprocess.check_output(['mtr', '-c', '1', '-r', '-w', host], stderr=subprocess.STDOUT, universal_newlines=True)
             return output
     except subprocess.CalledProcessError as e:
         return f"Routing Error:\n{e.output}"
     except Exception as e:
         return f"Routing Error: {str(e)}"
+
+def perform_speedtest(is_manual=False):
+    if data_store["speedtest_status"] == "running":
+        return
+        
+    data_store["speedtest_status"] = "running"
+    try:
+        st = speedtest.Speedtest()
+        st.get_best_server()
+        dl_mbps = round(st.download() / 1_000_000, 2)
+        ul_mbps = round(st.upload() / 1_000_000, 2)
+        ping_ms = round(st.results.ping, 2)
+        
+        if is_manual:
+            data_store["manual_speedtest"]["dl"] = dl_mbps
+            data_store["manual_speedtest"]["ul"] = ul_mbps
+            data_store["manual_speedtest"]["ping"] = ping_ms
+            data_store["manual_speedtest"]["time"] = datetime.now().strftime("%H:%M:%S")
+        else:
+            log_to_db("INSERT INTO speedtest (dl_mbps, ul_mbps, ping_ms) VALUES (?, ?, ?)", (dl_mbps, ul_mbps, ping_ms))
+            
+        data_store["speedtest_status"] = "idle"
+    except Exception as e:
+        print(f"Speedtest failed: {e}")
+        data_store["speedtest_status"] = "error"
+        time.sleep(5) 
+        data_store["speedtest_status"] = "idle"
 
 # --- Background Threads ---
 def background_system_stats():
@@ -165,25 +186,14 @@ def background_system_stats():
 
 def background_speedtest():
     while True:
-        try:
-            st = speedtest.Speedtest()
-            st.get_best_server()
-            dl_mbps = round(st.download() / 1_000_000, 2)
-            ul_mbps = round(st.upload() / 1_000_000, 2)
-            ping_ms = round(st.results.ping, 2)
-            
-            if len(data_store["speedtest"]["history_down"]) >= 12:
-                for key in ["history_down", "history_up", "history_ping"]:
-                    data_store["speedtest"][key].pop(0)
-            data_store["speedtest"]["history_down"].append(dl_mbps)
-            data_store["speedtest"]["history_up"].append(ul_mbps)
-            data_store["speedtest"]["history_ping"].append(ping_ms)
-            
-            log_to_db("INSERT INTO speedtest (dl_mbps, ul_mbps, ping_ms) VALUES (?, ?, ?)", (dl_mbps, ul_mbps, ping_ms))
-        except Exception as e:
-            print(f"Speedtest failed: {e}")
-            
-        time.sleep(3600)
+        now = datetime.now()
+        next_hour = (now + timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
+        sleep_seconds = (next_hour - now).total_seconds()
+        
+        print(f"Next automated PM speedtest scheduled for {next_hour.strftime('%H:%M:%S')} (in {int(sleep_seconds)} seconds)")
+        time.sleep(sleep_seconds)
+        
+        perform_speedtest(is_manual=False)
 
 def background_latency_mtr():
     while True:
@@ -207,6 +217,13 @@ def index():
 def api_data():
     return jsonify(data_store)
 
+@app.route('/api/speedtest/run', methods=['POST'])
+def api_run_speedtest():
+    if data_store["speedtest_status"] == "idle":
+        threading.Thread(target=perform_speedtest, args=(True,), daemon=True).start()
+        return jsonify({"status": "started"})
+    return jsonify({"status": "already_running"})
+
 @app.route('/api/history')
 def api_history():
     metric = request.args.get('metric', 'speedtest')
@@ -220,32 +237,32 @@ def api_history():
     result = {"labels": [], "data1": [], "data2": []}
     
     if metric == 'speedtest':
-        c.execute("SELECT strftime('%H:%M', ts) as time, dl_mbps, ul_mbps FROM speedtest WHERE ts >= ? ORDER BY ts ASC", (time_limit,))
+        c.execute("SELECT ts as bucket, dl_mbps as dl, ul_mbps as ul FROM speedtest WHERE ts >= ? ORDER BY ts ASC", (time_limit,))
         for row in c.fetchall():
-            result["labels"].append(row["time"])
-            result["data1"].append(round(row["dl_mbps"], 2))
-            result["data2"].append(round(row["ul_mbps"], 2))
+            result["labels"].append(row["bucket"])
+            result["data1"].append(round(row["dl"], 2))
+            result["data2"].append(round(row["ul"], 2))
             
     elif metric == 'throughput':
-        grouping = "'%H:00'" if hours > 2 else "'%H:%M'"
-        c.execute(f"SELECT strftime({grouping}, ts) as time, AVG(dl_mbps) as dl, AVG(ul_mbps) as ul FROM throughput WHERE ts >= ? GROUP BY time ORDER BY ts ASC", (time_limit,))
+        grouping = "'%Y-%m-%d %H:00:00'" if hours > 2 else "'%Y-%m-%d %H:%M:00'"
+        c.execute(f"SELECT strftime({grouping}, ts) as bucket, AVG(dl_mbps) as dl, AVG(ul_mbps) as ul FROM throughput WHERE ts >= ? GROUP BY bucket ORDER BY bucket ASC", (time_limit,))
         for row in c.fetchall():
-            result["labels"].append(row["time"])
+            result["labels"].append(row["bucket"])
             result["data1"].append(round(row["dl"], 2))
             result["data2"].append(round(row["ul"], 2))
             
     elif metric == 'latency':
-        grouping = "'%H:00'" if hours > 2 else "'%H:%M'"
-        c.execute(f"SELECT strftime({grouping}, ts) as time, AVG(ping_ms) as ping FROM latency WHERE target='Google' AND ts >= ? GROUP BY time ORDER BY ts ASC", (time_limit,))
+        grouping = "'%Y-%m-%d %H:00:00'" if hours > 2 else "'%Y-%m-%d %H:%M:00'"
+        c.execute(f"SELECT strftime({grouping}, ts) as bucket, AVG(ping_ms) as ping FROM latency WHERE target='Google' AND ts >= ? GROUP BY bucket ORDER BY bucket ASC", (time_limit,))
         for row in c.fetchall():
-            result["labels"].append(row["time"])
+            result["labels"].append(row["bucket"])
             result["data1"].append(round(row["ping"], 2))
             
     elif metric == 'loss':
-        grouping = "'%H:00'" if hours > 2 else "'%H:%M'"
-        c.execute(f"SELECT strftime({grouping}, ts) as time, AVG(loss_pct) as loss FROM latency WHERE target='Google' AND ts >= ? GROUP BY time ORDER BY ts ASC", (time_limit,))
+        grouping = "'%Y-%m-%d %H:00:00'" if hours > 2 else "'%Y-%m-%d %H:%M:00'"
+        c.execute(f"SELECT strftime({grouping}, ts) as bucket, AVG(loss_pct) as loss FROM latency WHERE target='Google' AND ts >= ? GROUP BY bucket ORDER BY bucket ASC", (time_limit,))
         for row in c.fetchall():
-            result["labels"].append(row["time"])
+            result["labels"].append(row["bucket"])
             result["data1"].append(round(row["loss"], 2))
 
     conn.close()
