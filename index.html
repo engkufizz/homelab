@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Homelab Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <style>
+        :root {
+            --bg-color: #121212;
+            --card-bg: #1e1e1e;
+            --text-main: #e0e0e0;
+            --text-muted: #9e9e9e;
+            --accent: #bb86fc;
+            --success: #03dac6;
+            --danger: #cf6679;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            margin: 0;
+            padding: 20px;
+        }
+        h1 { text-align: center; color: var(--accent); margin-bottom: 30px; }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 20px;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        .card {
+            background-color: var(--card-bg);
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+        .card h2 { margin-top: 0; font-size: 1.2rem; color: var(--success); border-bottom: 1px solid #333; padding-bottom: 10px; }
+        .metric { display: flex; justify-content: space-between; margin: 10px 0; font-size: 1.1rem; }
+        .metric span.value { font-weight: bold; color: var(--accent); }
+        pre { background: #121212; padding: 10px; border-radius: 5px; overflow-x: auto; font-size: 0.85rem; color: var(--text-muted); }
+        .chart-container { width: 100%; overflow: hidden; margin-top: 15px; }
+    </style>
+</head>
+<body>
+
+    <h1>Homelab Command Centre</h1>
+
+    <div class="grid">
+        <!-- System Resources -->
+        <div class="card">
+            <h2>System Resources</h2>
+            <div class="metric"><span>CPU Usage:</span> <span class="value" id="cpu-val">0%</span></div>
+            <div class="metric"><span>RAM Usage:</span> <span class="value" id="ram-val">0 / 0 GB (0%)</span></div>
+            <div class="metric"><span>Storage (C:):</span> <span class="value" id="disk-val">0 / 0 GB (0%)</span></div>
+            <div class="metric"><span>Core Temp:</span> <span class="value" id="temp-val" style="font-size: 0.8rem;">N/A</span></div>
+            
+            <!-- Mermaid Chart for CPU History -->
+            <div class="chart-container" id="cpu-chart-container"></div>
+        </div>
+
+        <!-- Network Throughput & Speedtest -->
+        <div class="card">
+            <h2>Network & Speedtest</h2>
+            <div class="metric"><span>Live Download:</span> <span class="value" id="live-dl">0 Mbps</span></div>
+            <div class="metric"><span>Live Upload:</span> <span class="value" id="live-ul">0 Mbps</span></div>
+            <br>
+            <h2>Hourly Speedtest</h2>
+            <div class="metric"><span>Last Run:</span> <span class="value" id="st-time" style="font-size: 0.9rem;">Initialising...</span></div>
+            <div class="metric"><span>Download:</span> <span class="value" id="st-dl">0 Mbps</span></div>
+            <div class="metric"><span>Upload:</span> <span class="value" id="st-ul">0 Mbps</span></div>
+            <div class="metric"><span>Ping:</span> <span class="value" id="st-ping">0 ms</span></div>
+        </div>
+
+        <!-- Latency Monitoring -->
+        <div class="card">
+            <h2>Latency (Ping)</h2>
+            <div id="latency-container">Loading...</div>
+        </div>
+
+        <!-- Routing Monitoring -->
+        <div class="card" style="grid-column: 1 / -1;">
+            <h2>Routing Reports (Tracert)</h2>
+            <div id="route-container">Loading...</div>
+        </div>
+    </div>
+
+    <script>
+        mermaid.initialize({ startOnLoad: false, theme: 'dark' });
+
+        async function fetchMetrics() {
+            try {
+                const response = await fetch('/api/metrics');
+                const data = await response.json();
+
+                // Update System
+                document.getElementById('cpu-val').innerText = `${data.system.cpu}%`;
+                document.getElementById('ram-val').innerText = `${data.system.ram_used} / ${data.system.ram_total} GB (${data.system.ram_pct}%)`;
+                document.getElementById('disk-val').innerText = `${data.system.disk_used} / ${data.system.disk_total} GB (${data.system.disk_pct}%)`;
+                document.getElementById('temp-val').innerText = data.system.temperature;
+
+                // Update Network Throughput
+                document.getElementById('live-dl').innerText = `${data.network.dl_throughput} Mbps`;
+                document.getElementById('live-ul').innerText = `${data.network.ul_throughput} Mbps`;
+
+                // Update Speedtest
+                document.getElementById('st-time').innerText = data.speedtest.timestamp;
+                document.getElementById('st-dl').innerText = `${data.speedtest.download} Mbps`;
+                document.getElementById('st-ul').innerText = `${data.speedtest.upload} Mbps`;
+                document.getElementById('st-ping').innerText = `${data.speedtest.ping} ms`;
+
+                // Update Latency
+                let latencyHTML = '';
+                for (const [host, ping] of Object.entries(data.latency)) {
+                    latencyHTML += `<div class="metric"><span>${host}:</span> <span class="value">${ping} ms</span></div>`;
+                }
+                document.getElementById('latency-container').innerHTML = latencyHTML;
+
+                // Update Routing (Tracert)
+                let routeHTML = '';
+                for (const [host, report] of Object.entries(data.route)) {
+                    routeHTML += `<h3>${host}</h3><pre>${report}</pre>`;
+                }
+                document.getElementById('route-container').innerHTML = routeHTML;
+
+                // Render Mermaid Chart (CPU History)
+                renderChart(data.system.cpu_history);
+
+            } catch (error) {
+                console.error("Error fetching metrics:", error);
+            }
+        }
+
+        async function renderChart(cpuHistory) {
+            const safeHistory = cpuHistory.map(v => Math.round(v));
+            
+            const graphDefinition = `
+xychart-beta
+title "CPU Usage History (%)"
+x-axis [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
+y-axis "Usage (%)" 0 --> 100
+bar [${safeHistory.join(', ')}]
+line [${safeHistory.join(', ')}]
+            `;
+            
+            try {
+                const { svg } = await mermaid.render('cpuGraph', graphDefinition);
+                document.getElementById('cpu-chart-container').innerHTML = svg;
+            } catch (e) {
+                console.error("Mermaid rendering failed:", e);
+            }
+        }
+
+        // Fetch metrics every 2.5 seconds
+        setInterval(fetchMetrics, 2500);
+        fetchMetrics(); // Initial fetch
+    </script>
+</body>
+</html>
