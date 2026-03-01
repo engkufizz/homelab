@@ -27,7 +27,6 @@
 <body class="p-6 min-h-screen">
 
     <div class="max-w-7xl mx-auto space-y-6">
-        <!-- Header -->
         <header class="flex justify-between items-center pb-4 border-b border-gray-700">
             <div>
                 <h1 class="text-3xl font-bold tracking-tight text-white"><i class="fa-solid fa-server text-blue-500 mr-3"></i>Homelab Command Centre</h1>
@@ -39,9 +38,7 @@
             </div>
         </header>
 
-        <!-- Top Row: System Stats & Realtime Throughput -->
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <!-- System Resources -->
             <div class="glass-card p-6 lg:col-span-2 grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div class="flex flex-col items-center">
                     <h3 class="text-gray-400 text-sm mb-2 font-semibold uppercase tracking-wider">CPU</h3>
@@ -81,7 +78,6 @@
                 </div>
             </div>
 
-            <!-- Real-time Throughput -->
             <div class="glass-card p-6 flex flex-col justify-center">
                 <h2 class="text-lg font-semibold mb-4 text-gray-200"><i class="fa-solid fa-network-wired mr-2"></i>Live Throughput</h2>
                 <div class="space-y-6">
@@ -107,13 +103,11 @@
             </div>
         </div>
 
-        <!-- Middle Row: Mermaid Charts (Real-time Latency & MTR) -->
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div class="glass-card p-6 col-span-1">
                 <h2 class="text-lg font-semibold mb-4 text-gray-200"><i class="fa-solid fa-stopwatch mr-2"></i>Live Latency & Loss</h2>
                 <div id="latency-chart-container" class="w-full overflow-hidden flex justify-center">
-                    <!-- Mermaid Chart Injected Here -->
-                </div>
+                    </div>
             </div>
             
             <div class="glass-card p-6 col-span-2">
@@ -135,26 +129,27 @@
             </div>
         </div>
 
-        <!-- Bottom Row: Historical PM Data Query -->
         <div class="glass-card p-6">
             <div class="flex flex-col md:flex-row justify-between items-center mb-6 border-b border-gray-700 pb-4">
                 <h2 class="text-xl font-semibold text-gray-200"><i class="fa-solid fa-chart-line mr-2 text-purple-400"></i>Performance Monitoring (PM) History</h2>
                 <div class="flex space-x-4 mt-4 md:mt-0">
-                    <select id="pm-metric">
-                        <option value="speedtest">Speedtest (Mbps)</option>
-                        <option value="throughput">Throughput (Mbps)</option>
-                        <option value="latency">Google Latency (ms)</option>
-                        <option value="loss">Google Packet Loss (%)</option>
-                    </select>
-                    <select id="pm-timeframe">
-                        <option value="12">Last 12 Hours</option>
-                        <option value="24" selected>Last 24 Hours</option>
-                        <option value="72">Last 3 Days</option>
-                        <option value="168">Last 7 Days</option>
-                    </select>
-                    <button onclick="fetchHistoricalData()" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg transition-colors font-medium text-sm">
-                        Query Data
-                    </button>
+                    <div class="flex flex-wrap gap-3">
+                        <select id="pm-metric">
+                            <option value="speedtest">Speedtest (Mbps)</option>
+                            <option value="throughput">Throughput (Mbps)</option>
+                            <option value="latency">Google Latency (ms)</option>
+                            <option value="loss">Google Packet Loss (%)</option>
+                        </select>
+                        <select id="pm-timeframe">
+                            <option value="12">Last 12 Hours</option>
+                            <option value="24" selected>Last 24 Hours</option>
+                            <option value="72">Last 3 Days</option>
+                            <option value="168">Last 7 Days</option>
+                        </select>
+                        <button onclick="fetchHistoricalData()" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg transition-colors font-medium text-sm whitespace-nowrap">
+                            Query Data
+                        </button>
+                    </div>
                 </div>
             </div>
             <div id="historical-chart-container" class="w-full overflow-hidden flex justify-center min-h-[300px] items-center">
@@ -163,7 +158,6 @@
         </div>
     </div>
 
-    <!-- MermaidJS Module -->
     <script type="module">
         import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
         mermaid.initialize({ startOnLoad: false, theme: 'dark' });
@@ -235,12 +229,13 @@
                     const pings = Object.keys(data.latency).map(k => data.latency[k].ping).join(', ');
                     const losses = Object.keys(data.latency).map(k => data.latency[k].loss).join(', ');
 
+                    // Swapped 'bar' to 'line' here
                     const latencyMermaid = `
 xychart-beta
-title "Bar: Ping (ms), Line: Loss (%)"
+title "Ping (ms) & Loss (%)"
 x-axis [${targets}]
 y-axis "Value"
-bar [${pings}]
+line [${pings}]
 line [${losses}]
                     `;
                     
@@ -276,16 +271,17 @@ line [${losses}]
                 let yAxis = "";
                 let chartSyntax = "";
 
+                // Swapped 'bar' to 'line' for dual datasets
                 if (metric === 'speedtest' || metric === 'throughput') {
                     const d2 = data.data2.join(', ');
-                    chartTitle = metric === 'speedtest' ? "Speedtest History (Bar: DL, Line: UL)" : "Throughput History (Bar: DL, Line: UL)";
+                    chartTitle = metric === 'speedtest' ? "Speedtest History (DL vs UL)" : "Throughput History (DL vs UL)";
                     yAxis = "Mbps";
                     chartSyntax = `
 xychart-beta
 title "${chartTitle}"
 x-axis [${xLabels}]
 y-axis "${yAxis}"
-bar [${d1}]
+line [${d1}]
 line [${d2}]
                     `;
                 } else if (metric === 'latency') {
