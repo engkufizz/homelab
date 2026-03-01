@@ -4,7 +4,8 @@ import psutil
 import subprocess
 import json
 import re
-from flask import Flask, jsonify
+import os
+from flask import Flask, jsonify, render_template
 from flask_cors import CORS
 
 app = Flask(__name__)
@@ -128,10 +129,17 @@ threads = [
 for t in threads:
     t.start()
 
+@app.route('/')
+def serve_index():
+    """Serves the main HTML dashboard from the templates folder."""
+    # Flask automatically looks inside the 'templates' folder for this file
+    return render_template('index.html')
+
 @app.route('/api/data')
 def get_data():
+    """Returns the JSON data payload."""
     return jsonify(data_store)
 
 if __name__ == '__main__':
-    # Run on port 5000
+    # Run on port 5000, accessible across the local network
     app.run(host='0.0.0.0', port=5000)
