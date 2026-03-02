@@ -7,8 +7,17 @@ import speedtest
 import sqlite3
 import re
 import random
+import ssl
 from datetime import datetime, timedelta, timezone
 from flask import Flask, jsonify, render_template, request
+
+# FIX: Tell Python to ignore strict SSL certificate verification errors
+try:
+    _create_unverified_https_context = ssl._create_unverified_context
+except AttributeError:
+    pass
+else:
+    ssl._create_default_https_context = _create_unverified_https_context
 
 app = Flask(__name__)
 
@@ -134,7 +143,7 @@ def perform_speedtest(is_manual=False):
         
     data_store["speedtest_status"] = "running"
     try:
-        st = speedtest.Speedtest()
+        st = speedtest.Speedtest(secure=True)
         st.get_best_server()
         dl_mbps = round(st.download() / 1_000_000, 2)
         ul_mbps = round(st.upload() / 1_000_000, 2)
