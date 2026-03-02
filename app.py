@@ -39,7 +39,10 @@ TARGETS = {
 def init_db():
     conn = sqlite3.connect('homelab.db')
     c = conn.cursor()
+    # Table for automated PM history
     c.execute('''CREATE TABLE IF NOT EXISTS speedtest (ts DATETIME DEFAULT CURRENT_TIMESTAMP, dl_mbps REAL, ul_mbps REAL, ping_ms REAL)''')
+    # Table for manual speedtest history
+    c.execute('''CREATE TABLE IF NOT EXISTS manual_speedtest (ts TEXT, dl_mbps REAL, ul_mbps REAL, ping_ms REAL)''')
     c.execute('''CREATE TABLE IF NOT EXISTS latency (ts DATETIME DEFAULT CURRENT_TIMESTAMP, target TEXT, ping_ms REAL)''')
     c.execute('''CREATE TABLE IF NOT EXISTS throughput (ts DATETIME DEFAULT CURRENT_TIMESTAMP, dl_mbps REAL, ul_mbps REAL)''')
     
@@ -60,6 +63,22 @@ def log_to_db(query, params=()):
         conn.close()
     except Exception as e:
         print(f"DB Error: {e}")
+
+def load_last_manual_speedtest():
+    """Loads the last manual speedtest from the database on startup."""
+    try:
+        conn = sqlite3.connect('homelab.db')
+        c = conn.cursor()
+        c.execute("SELECT ts, dl_mbps, ul_mbps, ping_ms FROM manual_speedtest ORDER BY ROWID DESC LIMIT 1")
+        row = c.fetchone()
+        if row:
+            data_store["manual_speedtest"]["time"] = row[0]
+            data_store["manual_speedtest"]["dl"] = row[1]
+            data_store["manual_speedtest"]["ul"] = row[2]
+            data_store["manual_speedtest"]["ping"] = row[3]
+        conn.close()
+    except Exception as e:
+        print(f"Failed to load last manual speedtest: {e}")
 
 # --- Network Tools ---
 def get_ping_and_loss(host):
@@ -124,11 +143,17 @@ def perform_speedtest(is_manual=False):
         ping_ms = round(st.results.ping, 2)
         
         if is_manual:
+            current_time = datetime.now().strftime("%H:%M:%S")
+            # Update memory
             data_store["manual_speedtest"]["dl"] = dl_mbps
             data_store["manual_speedtest"]["ul"] = ul_mbps
             data_store["manual_speedtest"]["ping"] = ping_ms
-            data_store["manual_speedtest"]["time"] = datetime.now().strftime("%H:%M:%S")
+            data_store["manual_speedtest"]["time"] = current_time
+            # Save to database so it survives restarts
+            log_to_db("INSERT INTO manual_speedtest (ts, dl_mbps, ul_mbps, ping_ms) VALUES (?, ?, ?, ?)", 
+                      (current_time, dl_mbps, ul_mbps, ping_ms))
         else:
+            # Save to PM database
             log_to_db("INSERT INTO speedtest (dl_mbps, ul_mbps, ping_ms) VALUES (?, ?, ?)", (dl_mbps, ul_mbps, ping_ms))
             
         data_store["speedtest_status"] = "idle"
@@ -270,6 +295,7 @@ def api_history():
 
 if __name__ == '__main__':
     init_db()
+    load_last_manual_speedtest() # Load the saved result on startup
     threading.Thread(target=background_system_stats, daemon=True).start()
     threading.Thread(target=background_speedtest, daemon=True).start()
     threading.Thread(target=background_latency_mtr, daemon=True).start()
