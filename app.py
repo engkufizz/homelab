@@ -6,7 +6,8 @@ import psutil
 import speedtest
 import sqlite3
 import re
-from datetime import datetime, timedelta
+import random
+from datetime import datetime, timedelta, timezone
 from flask import Flask, jsonify, render_template, request
 
 app = Flask(__name__)
@@ -39,9 +40,7 @@ TARGETS = {
 def init_db():
     conn = sqlite3.connect('homelab.db')
     c = conn.cursor()
-    # Table for automated PM history
     c.execute('''CREATE TABLE IF NOT EXISTS speedtest (ts DATETIME DEFAULT CURRENT_TIMESTAMP, dl_mbps REAL, ul_mbps REAL, ping_ms REAL)''')
-    # Table for manual speedtest history
     c.execute('''CREATE TABLE IF NOT EXISTS manual_speedtest (ts TEXT, dl_mbps REAL, ul_mbps REAL, ping_ms REAL)''')
     c.execute('''CREATE TABLE IF NOT EXISTS latency (ts DATETIME DEFAULT CURRENT_TIMESTAMP, target TEXT, ping_ms REAL)''')
     c.execute('''CREATE TABLE IF NOT EXISTS throughput (ts DATETIME DEFAULT CURRENT_TIMESTAMP, dl_mbps REAL, ul_mbps REAL)''')
@@ -65,7 +64,6 @@ def log_to_db(query, params=()):
         print(f"DB Error: {e}")
 
 def load_last_manual_speedtest():
-    """Loads the last manual speedtest from the database on startup."""
     try:
         conn = sqlite3.connect('homelab.db')
         c = conn.cursor()
@@ -132,7 +130,7 @@ def get_mtr(host):
 
 def perform_speedtest(is_manual=False):
     if data_store["speedtest_status"] == "running":
-        return
+        return False
         
     data_store["speedtest_status"] = "running"
     try:
@@ -144,24 +142,23 @@ def perform_speedtest(is_manual=False):
         
         if is_manual:
             current_time = datetime.now().strftime("%H:%M:%S")
-            # Update memory
             data_store["manual_speedtest"]["dl"] = dl_mbps
             data_store["manual_speedtest"]["ul"] = ul_mbps
             data_store["manual_speedtest"]["ping"] = ping_ms
             data_store["manual_speedtest"]["time"] = current_time
-            # Save to database so it survives restarts
             log_to_db("INSERT INTO manual_speedtest (ts, dl_mbps, ul_mbps, ping_ms) VALUES (?, ?, ?, ?)", 
                       (current_time, dl_mbps, ul_mbps, ping_ms))
         else:
-            # Save to PM database
             log_to_db("INSERT INTO speedtest (dl_mbps, ul_mbps, ping_ms) VALUES (?, ?, ?)", (dl_mbps, ul_mbps, ping_ms))
             
         data_store["speedtest_status"] = "idle"
+        return True
     except Exception as e:
         print(f"Speedtest failed: {e}")
         data_store["speedtest_status"] = "error"
         time.sleep(5) 
         data_store["speedtest_status"] = "idle"
+        return False
 
 # --- Background Threads ---
 def background_system_stats():
@@ -218,7 +215,19 @@ def background_speedtest():
         print(f"Next automated PM speedtest scheduled for {next_hour.strftime('%H:%M:%S')} (in {int(sleep_seconds)} seconds)")
         time.sleep(sleep_seconds)
         
-        perform_speedtest(is_manual=False)
+        # Add Jitter: Wait a random amount of time between 5 and 45 seconds to bypass Speedtest.net rate limits
+        jitter = random.randint(5, 45)
+        print(f"Applying {jitter}s random delay (jitter) to avoid Speedtest.net blocks...")
+        time.sleep(jitter)
+        
+        for attempt in range(3):
+            print(f"Running automated PM speedtest (Attempt {attempt + 1}/3)...")
+            if perform_speedtest(is_manual=False):
+                print("Automated PM speedtest successful and logged.")
+                break
+            else:
+                print("Automated PM speedtest failed. Retrying in 60 seconds...")
+                time.sleep(60)
 
 def background_latency_mtr():
     while True:
@@ -258,7 +267,7 @@ def api_history():
     conn.row_factory = sqlite3.Row
     c = conn.cursor()
     
-    time_limit = (datetime.utcnow() - timedelta(hours=hours)).strftime('%Y-%m-%d %H:%M:%S')
+    time_limit = (datetime.now(timezone.utc) - timedelta(hours=hours)).strftime('%Y-%m-%d %H:%M:%S')
     result = {"labels": [], "data1": [], "data2": []}
     
     if metric == 'speedtest':
@@ -295,7 +304,7 @@ def api_history():
 
 if __name__ == '__main__':
     init_db()
-    load_last_manual_speedtest() # Load the saved result on startup
+    load_last_manual_speedtest()
     threading.Thread(target=background_system_stats, daemon=True).start()
     threading.Thread(target=background_speedtest, daemon=True).start()
     threading.Thread(target=background_latency_mtr, daemon=True).start()
