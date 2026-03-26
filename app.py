@@ -1,3 +1,4 @@
+import os
 import time
 import threading
 import subprocess
@@ -8,10 +9,17 @@ import sqlite3
 import re
 import random
 import ssl
+import urllib.request
+import urllib.parse
 from datetime import datetime, timedelta, timezone
 from flask import Flask, jsonify, render_template, request
+from google import genai
+from dotenv import load_dotenv
 
-# FIX: Tell Python to ignore strict SSL certificate verification errors
+# Load sensitive variables from the .env file
+load_dotenv()
+
+# Tell Python to ignore strict SSL certificate verification errors
 try:
     _create_unverified_https_context = ssl._create_unverified_context
 except AttributeError:
@@ -19,6 +27,18 @@ except AttributeError:
 else:
     ssl._create_default_https_context = _create_unverified_https_context
 
+# --- TELEGRAM & AI SETTINGS ---
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
+TEMP_THRESHOLD = 70.0
+RESET_THRESHOLD = 60.0
+COOLDOWN_SECONDS = 900
+last_telegram_alert_time = 0
+REPORT_HOUR = 8 # Sends the AI report at 8:00 AM every day
+
+# ------------------------------
 app = Flask(__name__)
 
 # Global state for real-time dashboard
@@ -34,7 +54,11 @@ data_store = {
         "Cloudflare DNS": {"ping": 0, "loss": 0},
         "Google DNS": {"ping": 0, "loss": 0}
     },
-    "mtr": {"Google": "Initialising route trace...", "Facebook": "Initialising route trace...", "YouTube": "Initialising route trace..."}
+    "mtr": {
+        "Google": "Initialising route trace...", 
+        "Facebook": "Initialising route trace...", 
+        "YouTube": "Initialising route trace..."
+    }
 }
 
 TARGETS = {
@@ -84,8 +108,8 @@ def load_last_manual_speedtest():
             data_store["manual_speedtest"]["ul"] = row[2]
             data_store["manual_speedtest"]["ping"] = row[3]
         conn.close()
-    except Exception as e:
-        print(f"Failed to load last manual speedtest: {e}")
+    except Exception:
+        pass
 
 # --- Network Tools ---
 def get_ping_and_loss(host):
@@ -105,16 +129,18 @@ def get_ping_and_loss(host):
 
     loss_match = re.search(r'(\d+)%\s*(packet\s*)?loss', output)
     loss_pct = float(loss_match.group(1)) if loss_match else 100.0
-    
     ping_ms = 0.0
+    
     if loss_pct < 100.0:
         if is_win:
             ping_match = re.search(r'Average\s*=\s*(\d+)ms', output)
-            if ping_match: ping_ms = float(ping_match.group(1))
+            if ping_match: 
+                ping_ms = float(ping_match.group(1))
         else:
             ping_match = re.search(r'= [\d\.]+/([\d\.]+)/[\d\.]+/', output)
-            if ping_match: ping_ms = float(ping_match.group(1))
-            
+            if ping_match: 
+                ping_ms = float(ping_match.group(1))
+                
     return ping_ms, loss_pct
 
 def get_mtr(host):
@@ -163,18 +189,83 @@ def perform_speedtest(is_manual=False):
         data_store["speedtest_status"] = "idle"
         return True
     except Exception as e:
-        print(f"Speedtest failed: {e}")
         data_store["speedtest_status"] = "error"
         time.sleep(5) 
         data_store["speedtest_status"] = "idle"
         return False
 
+# --- AI Daily Report Logic ---
+def generate_and_send_daily_report():
+    if not GEMINI_API_KEY:
+        print("Gemini API key not set in .env file. Skipping report.")
+        return
+        
+    try:
+        conn = sqlite3.connect('homelab.db')
+        c = conn.cursor()
+        time_limit = (datetime.now(timezone.utc) - timedelta(hours=24)).strftime('%Y-%m-%d %H:%M:%S')
+
+        c.execute("SELECT AVG(dl_mbps), AVG(ul_mbps) FROM throughput WHERE ts >= ?", (time_limit,))
+        tp_row = c.fetchone()
+        avg_dl = round(tp_row[0] or 0, 2)
+        avg_ul = round(tp_row[1] or 0, 2)
+
+        c.execute("SELECT MAX(ping_ms) FROM latency WHERE target='Google' AND ts >= ?", (time_limit,))
+        lat_row = c.fetchone()
+        max_ping = round(lat_row[0] or 0, 2)
+
+        c.execute("SELECT AVG(dl_mbps), AVG(ul_mbps) FROM speedtest WHERE ts >= ?", (time_limit,))
+        st_row = c.fetchone()
+        st_avg_dl = round(st_row[0] or 0, 2)
+        st_avg_ul = round(st_row[1] or 0, 2)
+        
+        conn.close()
+        current_temp = data_store["system"]["temp"]
+
+        prompt = f"""
+        You are an AI System Administrator for my Orange Pi homelab. 
+        Write a short, friendly, and professional daily morning report for me to read on Telegram. 
+        Use emojis. Keep it concise and easy to read. 
+        IMPORTANT FORMATTING RULE: For bold text, use a single asterisk like *this*, NOT double asterisks. Do not use hashtags (#) for headers.
+        
+        Here is the data from the last 24 hours:
+        - Average Network Throughput: {avg_dl} Mbps Download / {avg_ul} Mbps Upload
+        - Max Latency Spike to Google: {max_ping} ms
+        - Average Automated Speedtest: {st_avg_dl} Mbps Download / {st_avg_ul} Mbps Upload
+        - Current Orange Pi Temperature: {current_temp}°C
+        """
+        
+        client = genai.Client(api_key=GEMINI_API_KEY)
+        response = client.models.generate_content(
+            model='gemini-2.5-flash-lite',
+            contents=prompt,
+        )
+        
+        report_text = response.text
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+        data = urllib.parse.urlencode({'chat_id': TELEGRAM_CHAT_ID, 'text': report_text, 'parse_mode': 'Markdown'}).encode('utf-8')
+        req = urllib.request.Request(url, data=data)
+        urllib.request.urlopen(req, timeout=10)
+        print("Daily AI Report sent successfully!")
+
+    except Exception as e:
+        print(f"Failed to generate or send AI report: {e}")
+
+def background_daily_report():
+    last_sent_date = None
+    while True:
+        now = datetime.now()
+        if now.hour == REPORT_HOUR and now.date() != last_sent_date:
+            generate_and_send_daily_report()
+            last_sent_date = now.date()
+        time.sleep(60)
+
 # --- Background Threads ---
 def background_system_stats():
+    global last_telegram_alert_time
     last_net = psutil.net_io_counters()
     last_time = time.time()
     db_log_timer = time.time()
-    
     dl_accum = 0
     ul_accum = 0
     ticks = 0
@@ -185,13 +276,39 @@ def background_system_stats():
         data_store["system"]["storage"] = psutil.disk_usage('/').percent
         
         try:
-            temps = psutil.sensors_temperatures()
-            if temps and 'coretemp' in temps:
-                data_store["system"]["temp"] = round(temps['coretemp'][0].current, 1)
-        except: pass
+            with open("/sys/class/thermal/thermal_zone0/temp", "r") as f:
+                temp_raw = int(f.read().strip())
+                data_store["system"]["temp"] = round(temp_raw / 1000.0, 1)
+        except Exception:
+            try:
+                temps = psutil.sensors_temperatures()
+                if temps and 'coretemp' in temps:
+                    data_store["system"]["temp"] = round(temps['coretemp'][0].current, 1)
+            except: 
+                pass
 
-        current_net = psutil.net_io_counters()
+        # --- Telegram Alert Logic ---
         current_time = time.time()
+        current_temp = data_store["system"]["temp"]
+        
+        if current_temp != "N/A":
+            if current_temp >= TEMP_THRESHOLD:
+                if current_time - last_telegram_alert_time > COOLDOWN_SECONDS:
+                    if TELEGRAM_TOKEN:
+                        try:
+                            msg = f"⚠️ *Orange Pi Alert* ⚠️\nCPU Temperature has reached *{current_temp}°C*!"
+                            url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+                            data = urllib.parse.urlencode({'chat_id': TELEGRAM_CHAT_ID, 'text': msg, 'parse_mode': 'Markdown'}).encode('utf-8')
+                            req = urllib.request.Request(url, data=data)
+                            urllib.request.urlopen(req, timeout=5)
+                            last_telegram_alert_time = current_time
+                        except Exception:
+                            pass
+            elif current_temp <= RESET_THRESHOLD:
+                last_telegram_alert_time = 0
+        # ----------------------------
+        
+        current_net = psutil.net_io_counters()
         time_diff = current_time - last_time
         
         if time_diff > 0:
@@ -221,22 +338,14 @@ def background_speedtest():
         next_hour = (now + timedelta(hours=1)).replace(minute=0, second=0, microsecond=0)
         sleep_seconds = (next_hour - now).total_seconds()
         
-        print(f"Next automated PM speedtest scheduled for {next_hour.strftime('%H:%M:%S')} (in {int(sleep_seconds)} seconds)")
         time.sleep(sleep_seconds)
-        
-        # Add Jitter: Wait a random amount of time between 5 and 45 seconds to bypass Speedtest.net rate limits
-        jitter = random.randint(5, 45)
-        print(f"Applying {jitter}s random delay (jitter) to avoid Speedtest.net blocks...")
-        time.sleep(jitter)
+        time.sleep(random.randint(5, 45))
         
         for attempt in range(3):
-            print(f"Running automated PM speedtest (Attempt {attempt + 1}/3)...")
             if perform_speedtest(is_manual=False):
-                print("Automated PM speedtest successful and logged.")
                 break
-            else:
-                print("Automated PM speedtest failed. Retrying in 60 seconds...")
-                time.sleep(60)
+        else:
+            time.sleep(60)
 
 def background_latency_mtr():
     while True:
@@ -317,4 +426,9 @@ if __name__ == '__main__':
     threading.Thread(target=background_system_stats, daemon=True).start()
     threading.Thread(target=background_speedtest, daemon=True).start()
     threading.Thread(target=background_latency_mtr, daemon=True).start()
+    threading.Thread(target=background_daily_report, daemon=True).start() 
+    
+    # UNCOMMENT THE LINE BELOW TO FORCE TEST THE AI REPORT ON STARTUP
+    # threading.Thread(target=generate_and_send_daily_report, daemon=True).start() 
+    
     app.run(host='0.0.0.0', port=5000, debug=False)
