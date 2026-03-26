@@ -1,0 +1,18 @@
+# Security
+.env
+
+# Database (Do not upload historical data to GitHub)
+homelab.db
+
+# Virtual Environments
+venv/
+env/
+
+# Python Cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# OS Generated Files
+.DS_Store
+Thumbs.db
