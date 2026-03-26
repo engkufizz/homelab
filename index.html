@@ -6,7 +6,6 @@
     <title>Homelab Command Centre</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <!-- Imported Chart.js instead of Mermaid -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         body { background-color: #0f172a; color: #f8fafc; font-family: 'Inter', sans-serif; }
@@ -27,9 +26,8 @@
     </style>
 </head>
 <body class="p-6 min-h-screen">
-
     <div class="max-w-7xl mx-auto space-y-6">
-        <!-- Header -->
+        
         <header class="flex flex-col md:flex-row justify-between items-center pb-4 border-b border-gray-700 gap-4">
             <div class="text-center md:text-left">
                 <h1 class="text-3xl font-bold tracking-tight text-white"><i class="fa-solid fa-server text-blue-500 mr-3"></i>Homelab Command Centre</h1>
@@ -46,9 +44,8 @@
             </div>
         </header>
 
-        <!-- Top Row: System Stats, Throughput, and Manual Speedtest -->
         <div class="grid grid-cols-1 xl:grid-cols-4 gap-6">
-            <!-- System Resources -->
+            
             <div class="glass-card p-6 xl:col-span-2 grid grid-cols-2 md:grid-cols-4 gap-4 items-center">
                 <div class="flex flex-col items-center">
                     <h3 class="text-gray-400 text-sm mb-2 font-semibold uppercase tracking-wider">CPU</h3>
@@ -82,13 +79,16 @@
                 </div>
                 <div class="flex flex-col items-center">
                     <h3 class="text-gray-400 text-sm mb-2 font-semibold uppercase tracking-wider">Temp</h3>
-                    <div class="w-24 h-24 flex items-center justify-center rounded-full border-8 border-gray-700">
-                        <div class="font-bold text-xl text-orange-400" id="temp-val">--°C</div>
+                    <div class="relative w-24 h-24">
+                        <svg class="w-full h-full" viewBox="0 0 100 100">
+                            <circle class="text-gray-700 stroke-current" stroke-width="8" cx="50" cy="50" r="40" fill="transparent"></circle>
+                            <circle id="temp-ring" class="text-orange-500 progress-ring__circle stroke-current" stroke-width="8" stroke-linecap="round" cx="50" cy="50" r="40" fill="transparent" stroke-dasharray="251.2" stroke-dashoffset="251.2"></circle>
+                        </svg>
+                        <div class="absolute inset-0 flex items-center justify-center font-bold text-lg text-orange-400" id="temp-val">--°C</div>
                     </div>
                 </div>
             </div>
 
-            <!-- Real-time Throughput -->
             <div class="glass-card p-6 flex flex-col justify-center xl:col-span-1">
                 <h2 class="text-lg font-semibold mb-4 text-gray-200"><i class="fa-solid fa-network-wired mr-2"></i>Live Throughput</h2>
                 <div class="space-y-6">
@@ -113,7 +113,6 @@
                 </div>
             </div>
 
-            <!-- Manual Speedtest Results -->
             <div class="glass-card p-6 flex flex-col justify-center xl:col-span-1">
                 <h2 class="text-lg font-semibold mb-4 text-gray-200"><i class="fa-solid fa-gauge mr-2"></i>Manual Result</h2>
                 <div class="space-y-4">
@@ -135,7 +134,6 @@
         </div>
 
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <!-- Chart.js Latency Container -->
             <div class="glass-card p-6 col-span-1">
                 <h2 class="text-lg font-semibold mb-4 text-gray-200"><i class="fa-solid fa-stopwatch mr-2"></i>Live Latency & Loss</h2>
                 <div style="height: 250px; width: 100%;">
@@ -162,7 +160,6 @@
             </div>
         </div>
 
-        <!-- Chart.js PM History Container -->
         <div class="glass-card p-6">
             <div class="flex flex-col md:flex-row justify-between items-center mb-6 border-b border-gray-700 pb-4">
                 <h2 class="text-xl font-semibold text-gray-200"><i class="fa-solid fa-chart-line mr-2 text-purple-400"></i>Performance Monitoring (PM) History</h2>
@@ -186,10 +183,8 @@
                     </div>
                 </div>
             </div>
-            
             <div id="pm-loading" class="hidden text-blue-400 mb-2 text-center"><i class="fa-solid fa-circle-notch fa-spin mr-2"></i>Querying Database...</div>
             <div id="pm-empty" class="hidden text-orange-400 mb-2 text-center">No historical data found for this timeframe yet. Wait for background logs.</div>
-            
             <div style="height: 350px; width: 100%;">
                 <canvas id="pmChart"></canvas>
             </div>
@@ -216,14 +211,14 @@
                     {
                         type: 'bar',
                         label: 'Ping (ms)',
-                        backgroundColor: '#5794f2', // Grafana Blue
+                        backgroundColor: '#5794f2',
                         data: [],
                         yAxisID: 'y'
                     },
                     {
                         type: 'line',
                         label: 'Loss (%)',
-                        borderColor: '#f2495c', // Grafana Red
+                        borderColor: '#f2495c',
                         backgroundColor: '#f2495c',
                         borderWidth: 2,
                         pointRadius: 3,
@@ -315,14 +310,15 @@
                 // 1. Update System Stats
                 document.getElementById('cpu-val').innerText = `${data.system.cpu}%`;
                 setProgress('cpu-ring', data.system.cpu);
-                
                 document.getElementById('ram-val').innerText = `${data.system.ram}%`;
                 setProgress('ram-ring', data.system.ram);
-                
                 document.getElementById('disk-val').innerText = `${data.system.storage}%`;
                 setProgress('disk-ring', data.system.storage);
-                
                 document.getElementById('temp-val').innerText = data.system.temp !== "N/A" ? `${data.system.temp}°C` : "N/A";
+                
+                if (data.system.temp !== "N/A") {
+                    setProgress('temp-ring', Math.min(data.system.temp, 100));
+                }
 
                 // 2. Update Throughput
                 document.getElementById('dl-speed').innerText = formatBytes(data.network_io.download_bps);
@@ -371,7 +367,6 @@
                 const currentLatencyStr = JSON.stringify(data.latency);
                 if (currentLatencyStr !== lastLatencyData) {
                     lastLatencyData = currentLatencyStr;
-                    
                     const targets = Object.keys(data.latency);
                     const pings = targets.map(k => data.latency[k].ping);
                     const losses = targets.map(k => data.latency[k].loss);
@@ -408,7 +403,6 @@
                     return;
                 }
 
-                // Format X-Axis Labels
                 const xLabels = data.labels.map(l => {
                     const date = new Date(l.replace(' ', 'T') + 'Z');
                     return hours > 24 
@@ -417,13 +411,12 @@
                 });
 
                 pmChart.data.labels = xLabels;
-                pmChart.data.datasets = []; // Clear old datasets
+                pmChart.data.datasets = [];
 
-                // Build datasets based on selected metric
                 if (metric === 'speedtest' || metric === 'throughput') {
                     pmChart.data.datasets.push({
                         label: 'Download (Mbps)',
-                        borderColor: '#73bf69', // Grafana Green
+                        borderColor: '#73bf69',
                         backgroundColor: 'rgba(115, 191, 105, 0.1)',
                         fill: true,
                         data: data.data1,
@@ -431,7 +424,7 @@
                     });
                     pmChart.data.datasets.push({
                         label: 'Upload (Mbps)',
-                        borderColor: '#5794f2', // Grafana Blue
+                        borderColor: '#5794f2',
                         backgroundColor: 'rgba(87, 148, 242, 0.1)',
                         fill: true,
                         data: data.data2,
@@ -441,7 +434,7 @@
                 } else if (metric === 'latency') {
                     pmChart.data.datasets.push({
                         label: 'Google Latency (ms)',
-                        borderColor: '#ff9830', // Grafana Orange
+                        borderColor: '#ff9830',
                         backgroundColor: 'rgba(255, 152, 48, 0.1)',
                         fill: true,
                         data: data.data1,
@@ -451,7 +444,7 @@
                 } else if (metric === 'loss') {
                     pmChart.data.datasets.push({
                         label: 'Google Packet Loss (%)',
-                        borderColor: '#f2495c', // Grafana Red
+                        borderColor: '#f2495c',
                         backgroundColor: 'rgba(242, 73, 92, 0.1)',
                         fill: true,
                         data: data.data1,
@@ -470,11 +463,8 @@
             }
         };
 
-        // Initial fetch and set interval (every 2 seconds)
         fetchRealtimeData();
         setInterval(fetchRealtimeData, 2000);
-        
-        // Auto-load historical data on start
         setTimeout(window.fetchHistoricalData, 1000);
     </script>
 </body>
