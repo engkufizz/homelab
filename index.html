@@ -22,7 +22,15 @@
             transform-origin: 50% 50%;
         }
         pre { scrollbar-width: thin; scrollbar-color: #475569 #1e293b; }
-        select { background-color: #1e293b; border: 1px solid #475569; color: white; border-radius: 0.5rem; padding: 0.5rem; outline: none; }
+        select, input[type="datetime-local"] { 
+            background-color: #1e293b; 
+            border: 1px solid #475569; 
+            color: white; 
+            border-radius: 0.5rem; 
+            padding: 0.5rem; 
+            outline: none; 
+        }
+        ::-webkit-calendar-picker-indicator { filter: invert(1); cursor: pointer; }
     </style>
 </head>
 <body class="p-6 min-h-screen">
@@ -161,30 +169,41 @@
         </div>
 
         <div class="glass-card p-6">
-            <div class="flex flex-col md:flex-row justify-between items-center mb-6 border-b border-gray-700 pb-4">
-                <h2 class="text-xl font-semibold text-gray-200"><i class="fa-solid fa-chart-line mr-2 text-purple-400"></i>Performance Monitoring (PM) History</h2>
-                <div class="flex space-x-4 mt-4 md:mt-0">
-                    <div class="flex flex-wrap gap-3">
-                        <select id="pm-metric">
-                            <option value="speedtest">Speedtest (Mbps)</option>
-                            <option value="throughput">Throughput (Mbps)</option>
-                            <option value="latency">Google Latency (ms)</option>
-                            <option value="loss">Google Packet Loss (%)</option>
-                        </select>
-                        <select id="pm-timeframe">
-                            <option value="12">Last 12 Hours</option>
-                            <option value="24" selected>Last 24 Hours</option>
-                            <option value="72">Last 3 Days</option>
-                            <option value="168">Last 7 Days</option>
-                        </select>
-                        <button onclick="fetchHistoricalData()" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg transition-colors font-medium text-sm whitespace-nowrap">
-                            Query Data
-                        </button>
+            <div class="flex flex-col xl:flex-row justify-between items-center mb-6 border-b border-gray-700 pb-4">
+                <h2 class="text-xl font-semibold text-gray-200 mb-4 xl:mb-0"><i class="fa-solid fa-chart-line mr-2 text-purple-400"></i>Performance Monitoring (PM) History</h2>
+                
+                <div class="flex flex-wrap items-center gap-3">
+                    
+                    <div id="custom-date-group" class="hidden flex items-center space-x-2">
+                        <input type="datetime-local" id="pm-start" class="text-sm">
+                        <span class="text-gray-400 text-sm">to</span>
+                        <input type="datetime-local" id="pm-end" class="text-sm">
                     </div>
+
+                    <select id="pm-metric" class="text-sm">
+                        <option value="speedtest">Speedtest (Mbps)</option>
+                        <option value="throughput">Throughput (Mbps)</option>
+                        <option value="latency">Google Latency (ms)</option>
+                        <option value="loss">Google Packet Loss (%)</option>
+                    </select>
+                    
+                    <select id="pm-timeframe" onchange="toggleCustomDates()" class="text-sm">
+                        <option value="12">Last 12 Hours</option>
+                        <option value="24" selected>Last 24 Hours</option>
+                        <option value="72">Last 3 Days</option>
+                        <option value="168">Last 7 Days</option>
+                        <option value="custom" class="text-blue-400 font-bold">Custom Date Range...</option>
+                    </select>
+
+                    <button onclick="fetchHistoricalData()" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg transition-colors font-medium text-sm whitespace-nowrap shadow-lg">
+                        Query Data
+                    </button>
                 </div>
             </div>
+            
             <div id="pm-loading" class="hidden text-blue-400 mb-2 text-center"><i class="fa-solid fa-circle-notch fa-spin mr-2"></i>Querying Database...</div>
             <div id="pm-empty" class="hidden text-orange-400 mb-2 text-center">No historical data found for this timeframe yet. Wait for background logs.</div>
+            
             <div style="height: 350px; width: 100%;">
                 <canvas id="pmChart"></canvas>
             </div>
@@ -192,7 +211,7 @@
     </div>
 
     <script>
-        // --- Global Chart.js Settings (Grafana Dark Theme Style) ---
+        // --- Global Chart.js Settings ---
         Chart.defaults.color = '#8e99a4';
         Chart.defaults.font.family = "'Inter', sans-serif";
         Chart.defaults.plugins.legend.position = 'bottom';
@@ -205,44 +224,17 @@
         const latencyCtx = document.getElementById('latencyChart').getContext('2d');
         let liveLatencyChart = new Chart(latencyCtx, {
             type: 'bar',
-            data: {
-                labels: [],
-                datasets: [
-                    {
-                        type: 'bar',
-                        label: 'Ping (ms)',
-                        backgroundColor: '#5794f2',
-                        data: [],
-                        yAxisID: 'y'
-                    },
-                    {
-                        type: 'line',
-                        label: 'Loss (%)',
-                        borderColor: '#f2495c',
-                        backgroundColor: '#f2495c',
-                        borderWidth: 2,
-                        pointRadius: 3,
-                        data: [],
-                        yAxisID: 'y1'
-                    }
-                ]
-            },
+            data: { labels: [], datasets: [
+                { type: 'bar', label: 'Ping (ms)', backgroundColor: '#5794f2', data: [], yAxisID: 'y' },
+                { type: 'line', label: 'Loss (%)', borderColor: '#f2495c', backgroundColor: '#f2495c', borderWidth: 2, pointRadius: 3, data: [], yAxisID: 'y1' }
+            ]},
             options: {
-                responsive: true,
-                maintainAspectRatio: false,
+                responsive: true, maintainAspectRatio: false, animation: false,
                 scales: {
                     x: xAxesOptions,
-                    y: { 
-                        type: 'linear', display: true, position: 'left', 
-                        grid: gridOptions, title: { display: true, text: 'ms' }
-                    },
-                    y1: { 
-                        type: 'linear', display: true, position: 'right', 
-                        grid: { drawOnChartArea: false }, min: 0, max: 100,
-                        title: { display: true, text: '%' }
-                    }
-                },
-                animation: false
+                    y: { type: 'linear', display: true, position: 'left', grid: gridOptions, title: { display: true, text: 'ms' }},
+                    y1: { type: 'linear', display: true, position: 'right', grid: { drawOnChartArea: false }, min: 0, max: 100, title: { display: true, text: '%' }}
+                }
             }
         });
 
@@ -252,19 +244,10 @@
             type: 'line',
             data: { labels: [], datasets: [] },
             options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                scales: {
-                    x: xAxesOptions,
-                    y: { grid: gridOptions, beginAtZero: true }
-                },
-                elements: { 
-                    point: { radius: 2, hoverRadius: 5 },
-                    line: { borderWidth: 2 }
-                },
-                plugins: {
-                    tooltip: { mode: 'index', intersect: false }
-                }
+                responsive: true, maintainAspectRatio: false,
+                scales: { x: xAxesOptions, y: { grid: gridOptions, beginAtZero: true }},
+                elements: { point: { radius: 2, hoverRadius: 5 }, line: { borderWidth: 2 }},
+                plugins: { tooltip: { mode: 'index', intersect: false }}
             }
         });
 
@@ -287,17 +270,25 @@
             const circle = document.getElementById(id);
             const radius = circle.r.baseVal.value;
             const circumference = radius * 2 * Math.PI;
-            const offset = circumference - (percent / 100) * circumference;
-            circle.style.strokeDashoffset = offset;
+            circle.style.strokeDashoffset = circumference - (percent / 100) * circumference;
         }
 
-        // --- Trigger Manual Speedtest ---
-        window.triggerSpeedtest = async function() {
-            try {
-                await fetch('/api/speedtest/run', { method: 'POST' });
-            } catch (error) {
-                console.error("Failed to trigger speedtest:", error);
+        // --- UI Interactions ---
+        window.toggleCustomDates = function() {
+            const tf = document.getElementById('pm-timeframe').value;
+            const customGroup = document.getElementById('custom-date-group');
+            if (tf === 'custom') {
+                customGroup.classList.remove('hidden');
+                customGroup.classList.add('flex');
+            } else {
+                customGroup.classList.add('hidden');
+                customGroup.classList.remove('flex');
             }
+        };
+
+        window.triggerSpeedtest = async function() {
+            try { await fetch('/api/speedtest/run', { method: 'POST' }); } 
+            catch (error) { console.error("Failed to trigger speedtest:", error); }
         };
 
         // --- Real-time Data Fetch Loop ---
@@ -307,53 +298,38 @@
                 const response = await fetch('/api/data');
                 const data = await response.json();
 
-                // 1. Update System Stats
-                document.getElementById('cpu-val').innerText = `${data.system.cpu}%`;
-                setProgress('cpu-ring', data.system.cpu);
-                document.getElementById('ram-val').innerText = `${data.system.ram}%`;
-                setProgress('ram-ring', data.system.ram);
-                document.getElementById('disk-val').innerText = `${data.system.storage}%`;
-                setProgress('disk-ring', data.system.storage);
+                // 1. System Stats
+                document.getElementById('cpu-val').innerText = `${data.system.cpu}%`; setProgress('cpu-ring', data.system.cpu);
+                document.getElementById('ram-val').innerText = `${data.system.ram}%`; setProgress('ram-ring', data.system.ram);
+                document.getElementById('disk-val').innerText = `${data.system.storage}%`; setProgress('disk-ring', data.system.storage);
                 document.getElementById('temp-val').innerText = data.system.temp !== "N/A" ? `${data.system.temp}°C` : "N/A";
-                
-                if (data.system.temp !== "N/A") {
-                    setProgress('temp-ring', Math.min(data.system.temp, 100));
-                }
+                if (data.system.temp !== "N/A") setProgress('temp-ring', Math.min(data.system.temp, 100));
 
-                // 2. Update Throughput
+                // 2. Throughput
                 document.getElementById('dl-speed').innerText = formatBytes(data.network_io.download_bps);
                 document.getElementById('ul-speed').innerText = formatBytes(data.network_io.upload_bps);
-                
                 const maxSpeedBps = 100 * 1024 * 1024; 
                 document.getElementById('dl-bar').style.width = `${Math.min((data.network_io.download_bps / maxSpeedBps) * 100, 100)}%`;
                 document.getElementById('ul-bar').style.width = `${Math.min((data.network_io.upload_bps / maxSpeedBps) * 100, 100)}%`;
 
-                // 3. Update MTR
+                // 3. MTR
                 document.getElementById('mtr-google').innerText = data.mtr.Google || "Running initial trace...";
                 document.getElementById('mtr-facebook').innerText = data.mtr.Facebook || "Running initial trace...";
                 document.getElementById('mtr-youtube').innerText = data.mtr.YouTube || "Running initial trace...";
 
-                // 4. Update Speedtest Button
-                const stStatus = data.speedtest_status;
+                // 4. Speedtest Button
                 const stBtn = document.getElementById('btn-speedtest');
                 const stBtnText = document.getElementById('btn-speedtest-text');
                 const stBtnIcon = stBtn.querySelector('i');
-
-                if (stStatus === 'running') {
-                    stBtn.disabled = true;
-                    stBtn.className = 'bg-gray-600 text-white px-4 py-2 rounded-lg font-medium text-sm flex items-center cursor-not-allowed shadow-lg';
-                    stBtnIcon.className = 'fa-solid fa-circle-notch fa-spin mr-2';
-                    stBtnText.innerText = 'Testing...';
-                } else if (stStatus === 'error') {
-                    stBtn.disabled = false;
-                    stBtn.className = 'bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg transition-colors font-medium text-sm flex items-center shadow-lg';
-                    stBtnIcon.className = 'fa-solid fa-triangle-exclamation mr-2';
-                    stBtnText.innerText = 'Error! Retry';
+                if (data.speedtest_status === 'running') {
+                    stBtn.disabled = true; stBtn.className = 'bg-gray-600 text-white px-4 py-2 rounded-lg font-medium text-sm flex items-center cursor-not-allowed shadow-lg';
+                    stBtnIcon.className = 'fa-solid fa-circle-notch fa-spin mr-2'; stBtnText.innerText = 'Testing...';
+                } else if (data.speedtest_status === 'error') {
+                    stBtn.disabled = false; stBtn.className = 'bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg transition-colors font-medium text-sm flex items-center shadow-lg';
+                    stBtnIcon.className = 'fa-solid fa-triangle-exclamation mr-2'; stBtnText.innerText = 'Error! Retry';
                 } else {
-                    stBtn.disabled = false;
-                    stBtn.className = 'bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors font-medium text-sm flex items-center shadow-lg';
-                    stBtnIcon.className = 'fa-solid fa-gauge-high mr-2';
-                    stBtnText.innerText = 'Run Speedtest';
+                    stBtn.disabled = false; stBtn.className = 'bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg transition-colors font-medium text-sm flex items-center shadow-lg';
+                    stBtnIcon.className = 'fa-solid fa-gauge-high mr-2'; stBtnText.innerText = 'Run Speedtest';
                 }
 
                 if (data.manual_speedtest.time !== "Never") {
@@ -363,34 +339,50 @@
                     document.getElementById('manual-time').innerText = `Last run: ${data.manual_speedtest.time}`;
                 }
 
-                // 5. Update Chart.js Latency Chart
+                // 5. Chart.js Latency Chart
                 const currentLatencyStr = JSON.stringify(data.latency);
                 if (currentLatencyStr !== lastLatencyData) {
                     lastLatencyData = currentLatencyStr;
                     const targets = Object.keys(data.latency);
-                    const pings = targets.map(k => data.latency[k].ping);
-                    const losses = targets.map(k => data.latency[k].loss);
-
                     liveLatencyChart.data.labels = targets;
-                    liveLatencyChart.data.datasets[0].data = pings;
-                    liveLatencyChart.data.datasets[1].data = losses;
+                    liveLatencyChart.data.datasets[0].data = targets.map(k => data.latency[k].ping);
+                    liveLatencyChart.data.datasets[1].data = targets.map(k => data.latency[k].loss);
                     liveLatencyChart.update();
                 }
-            } catch (error) {
-                console.error("Error fetching real-time data:", error);
-            }
+            } catch (error) { console.error("Error fetching real-time data:", error); }
         }
 
         // --- Fetch Historical PM Data ---
         window.fetchHistoricalData = async function() {
             const metric = document.getElementById('pm-metric').value;
-            const hours = parseInt(document.getElementById('pm-timeframe').value);
+            const timeframe = document.getElementById('pm-timeframe').value;
             
             document.getElementById('pm-loading').classList.remove('hidden');
             document.getElementById('pm-empty').classList.add('hidden');
 
+            let queryParams = `?metric=${metric}`;
+            let isCustom = (timeframe === 'custom');
+
+            if (isCustom) {
+                const startVal = document.getElementById('pm-start').value;
+                const endVal = document.getElementById('pm-end').value;
+                
+                if (!startVal || !endVal) {
+                    alert("Please select both a Start and End date for the custom query.");
+                    document.getElementById('pm-loading').classList.add('hidden');
+                    return;
+                }
+                
+                // Convert browser local time to format matching DB
+                const startUtc = startVal.replace('T', ' ') + ':00';
+                const endUtc = endVal.replace('T', ' ') + ':00';
+                queryParams += `&start=${startUtc}&end=${endUtc}`;
+            } else {
+                queryParams += `&hours=${timeframe}`;
+            }
+
             try {
-                const response = await fetch(`/api/history?metric=${metric}&hours=${hours}`);
+                const response = await fetch(`/api/history${queryParams}`);
                 const data = await response.json();
 
                 document.getElementById('pm-loading').classList.add('hidden');
@@ -404,8 +396,10 @@
                 }
 
                 const xLabels = data.labels.map(l => {
+                    // Create date object assuming UTC from DB, but displaying in local time
                     const date = new Date(l.replace(' ', 'T') + 'Z');
-                    return hours > 24 
+                    // Show full date/month info if it's a custom range or more than 24 hours
+                    return (isCustom || parseInt(timeframe) > 24) 
                         ? date.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
                         : date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
                 });
@@ -414,42 +408,14 @@
                 pmChart.data.datasets = [];
 
                 if (metric === 'speedtest' || metric === 'throughput') {
-                    pmChart.data.datasets.push({
-                        label: 'Download (Mbps)',
-                        borderColor: '#73bf69',
-                        backgroundColor: 'rgba(115, 191, 105, 0.1)',
-                        fill: true,
-                        data: data.data1,
-                        tension: 0.3
-                    });
-                    pmChart.data.datasets.push({
-                        label: 'Upload (Mbps)',
-                        borderColor: '#5794f2',
-                        backgroundColor: 'rgba(87, 148, 242, 0.1)',
-                        fill: true,
-                        data: data.data2,
-                        tension: 0.3
-                    });
+                    pmChart.data.datasets.push({ label: 'Download (Mbps)', borderColor: '#73bf69', backgroundColor: 'rgba(115, 191, 105, 0.1)', fill: true, data: data.data1, tension: 0.3 });
+                    pmChart.data.datasets.push({ label: 'Upload (Mbps)', borderColor: '#5794f2', backgroundColor: 'rgba(87, 148, 242, 0.1)', fill: true, data: data.data2, tension: 0.3 });
                     pmChart.options.scales.y.title = { display: true, text: 'Mbps' };
                 } else if (metric === 'latency') {
-                    pmChart.data.datasets.push({
-                        label: 'Google Latency (ms)',
-                        borderColor: '#ff9830',
-                        backgroundColor: 'rgba(255, 152, 48, 0.1)',
-                        fill: true,
-                        data: data.data1,
-                        tension: 0.3
-                    });
+                    pmChart.data.datasets.push({ label: 'Google Latency (ms)', borderColor: '#ff9830', backgroundColor: 'rgba(255, 152, 48, 0.1)', fill: true, data: data.data1, tension: 0.3 });
                     pmChart.options.scales.y.title = { display: true, text: 'ms' };
                 } else if (metric === 'loss') {
-                    pmChart.data.datasets.push({
-                        label: 'Google Packet Loss (%)',
-                        borderColor: '#f2495c',
-                        backgroundColor: 'rgba(242, 73, 92, 0.1)',
-                        fill: true,
-                        data: data.data1,
-                        tension: 0.3
-                    });
+                    pmChart.data.datasets.push({ label: 'Google Packet Loss (%)', borderColor: '#f2495c', backgroundColor: 'rgba(242, 73, 92, 0.1)', fill: true, data: data.data1, tension: 0.3 });
                     pmChart.options.scales.y.title = { display: true, text: '%' };
                 }
 
